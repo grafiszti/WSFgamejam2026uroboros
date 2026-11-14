@@ -94,12 +94,6 @@ function ThirdPersonController:GatherProperties()
 end
 
 function ThirdPersonController:Start()
-    --[[ local world = self.planet:GetWorld()
-    world:EnableInternalEdgeSmoothing(true)
-    self.planet:SetLinearFactor(Vec(0, 0, 0))
-    self.planet:SetLinearDamping(1000)
-    self.planet:AddAngularVelocity(Vec(0, 0, 0.25)) ]]
-    self:AddTag("Controller")
     --Input.LockCursor(true)
     --Input.TrapCursor(true)
     --Input.ShowCursor(false)
@@ -107,6 +101,7 @@ function ThirdPersonController:Start()
     if (not self.collider) then
         self.collider = self:GetParent()
     end
+    self.collider:AddTag("Controller")
 
     if (not self.camera) then
         self.camera = self.collider:FindChild("Camera", true)
@@ -120,15 +115,8 @@ function ThirdPersonController:Stop()
 end
 
 function ThirdPersonController:Tick(deltaTime)
-    --local curPlanetVel = self.planet:GetAngularVelocity()
-    --curPlanetVel.x = curPlanetVel.x + (velocity.z * 0.5)
-    --curPlanetVel.z = curPlanetVel.z + (velocity.x * 0.5)
     self:UpdateInput(deltaTime)
     self:NewMove(deltaTime)
-    --self.planet:SetAngularVelocity(Vec(self.moveDir.z * -1, 0, self.moveDir.x * 1))
-    --self:UpdateDrag(deltaTime)
-    --self:UpdateMovement(deltaTime)
-    --self:UpdateGrounding(deltaTime)
     self:UpdateCamera(deltaTime)
     self:UpdateMesh(deltaTime)
 end
@@ -169,21 +157,6 @@ function ThirdPersonController:UpdateInput(deltaTime)
         moveMag = math.min(moveMag, 1.0)
         self.moveDir = self.moveDir:Normalize()
         self.moveDir = self.moveDir * moveMag
-
-        -- lookDelta
-        --[[ self.lookVec.x, self.lookVec.y = Input.GetMouseDelta()
-        self.lookVec = self.lookVec * self.mouseSensitivity
-        local gamepadLook = Vec()
-        local rightAxisX = Input.GetGamepadAxis(Gamepad.AxisRX)
-        local rightAxisY = Input.GetGamepadAxis(Gamepad.AxisRY)
-        local rightAxisDeadZone = 0.1
-        if (math.abs(rightAxisX) > rightAxisDeadZone) then
-            gamepadLook.x = rightAxisX
-        end
-        if (math.abs(rightAxisY) > 0.1) then
-            gamepadLook.y = -rightAxisY
-        end
-        self.lookVec = self.lookVec + gamepadLook ]]
     else
         self.moveDir = Vec()
         self.lookDelta = Vec()
@@ -201,101 +174,12 @@ function ThirdPersonController:NewMove(deltaTime)
     endPos = startPos + -self.collider:GetUpVector() * 5
     sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
     if (sweepRes.hitNode and (sweepRes.hitNormal ~= self.lastNormal)) then
-        --Log.Debug("Score: " .. tostring(sweepRes.hitNormal))
-        --self.collider:LookAt(self.collider:GetWorldPosition() + self.collider:GetForwardVector(), sweepRes.hitNormal)
-        --[[         local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal,
-            self.collider:GetForwardVector())
-        self.collider:AddRotation(angle * Vec(0, 0, -1)) ]]
         if (self.tweenID) then
             Tween.Cancel(self.tweenID)
         end
         local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
         self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.12)
-        --self.collider:AddRotation(angle * Vec(1, 0, 0))
-    end
-    --[[ if (Vector.Dot(self.collider:GetUpVector(), Vec(0, 1, 0)) <= 0) then
-        local cross = Vector.Cross(self.collider:GetUpVector(), Vec(0, 1, 0))
-        self.planet:RotateAround(self.planet:GetWorldPosition(), cross, 90)
-        self.collider:RotateAround(self.planet:GetWorldPosition(), cross, 90)
-    end
-    startPos = self.collider:GetWorldPosition() + self.collider:GetUpVector() * 0.5
-    self.collider:SetWorldPosition(startPos)
-    endPos = startPos + -self.collider:GetUpVector() * 5
-    sweepRes = self.collider:SweepToWorldPosition(endPos, 2) ]]
-end
-
-function ThirdPersonController:UpdateDrag(deltaTime)
-    -- Update drag
-    local function updateDrag(velocity, drag)
-        local velXZ = Vec(velocity.x, 0, velocity.z)
-        local speed = velXZ:Magnitude()
-        local dir = speed > 0.0 and (velXZ / speed) or Vec()
-        speed = math.max(speed - drag * deltaTime, 0)
-        return dir * speed
-    end
-
-    if (self.grounded) then
-        -- Only apply move drag when player is not moving
-        if (self.moveDir == Vec(0, 0, 0)) then
-            self.moveVelocity = updateDrag(self.moveVelocity, self.moveDrag)
-        end
-        self.extVelocity = updateDrag(self.extVelocity, self.extDrag)
-    end
-end
-
-function ThirdPersonController:UpdateMovement(deltaTime)
-    -- Apply gravity
-    if (not self.grounded) then
-        local gravity = self.gravity
-        if (self.isJumping and self.isJumpHeld) then
-            gravity = gravity * self.jumpGravScale
-        end
-        self.extVelocity.y = self.extVelocity.y + gravity * deltaTime
-    end
-
-    -- Add velocity based on player input vector
-    local deltaMoveVel = self.moveDir * self.moveAccel * deltaTime
-    local yaw = self:GetCameraYaw()
-    deltaMoveVel = Vector.Rotate(deltaMoveVel, yaw, Vec(0, 1, 0))
-
-    -- Reduce move velocity when in air
-    --if (not self.grounded) then
-    --deltaMoveVel = deltaMoveVel * self.airControl
-    --end
-
-    --self.moveVelocity = self.moveVelocity + deltaMoveVel
-
-    --if (self.moveVelocity:Magnitude() > self.moveSpeed) then
-    --    self.moveVelocity = self.moveVelocity:Normalize() * self.moveSpeed
-    --end
-
-    -- First apply motion based on internal move velocity
-    --self.moveVelocity = self:Move(self.moveVelocity, deltaTime, self.vertSlideLimit)
-
-    -- Then apply motion based on external velocity (like gravity)
-    self.extVelocity = self:Move(self.extVelocity, deltaTime, 0.0)
-end
-
-function ThirdPersonController:UpdateGrounding(deltaTime)
-    self.ignoreGroundingTimer = math.max(self.ignoreGroundingTimer - deltaTime, 0.0)
-
-    if (self.grounded) then
-        -- Sweep to the ground.
-        local startPos = self.collider:GetWorldPosition()
-        local endPos = startPos + Vec(0, -0.1, 0)
-        local sweepRes = self.collider:SweepToWorldPosition(endPos, 0, true)
-
-        if (sweepRes.hitNode and sweepRes.hitNormal.y > self.kGroundingDot) then
-            local pos = startPos + sweepRes.hitFraction * (endPos - startPos) + Vec(0, 0.00101, 0)
-            self.collider:SetWorldPosition(pos)
-            self:SetGrounded(true)
-        else
-            self.collider:SetWorldPosition(startPos)
-            self:SetGrounded(false)
-        end
-    else
-        self.timeSinceGrounded = self.timeSinceGrounded + deltaTime
+            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.14)
     end
 end
 
@@ -390,66 +274,6 @@ function ThirdPersonController:UpdateMesh(deltaTime)
         self.mesh:PlayAnimation(self.animationRun, 0, true, 1.5, 1)
     else
         self.mesh:PlayAnimation(self.animationIdle, 0, true, 1, 1)
-    end
-end
-
-function ThirdPersonController:Move(velocity, deltaTime, vertSlideNormalLimit)
-    local kMaxIterations = 3
-
-    for i = 1, kMaxIterations do
-        local startPos = self.collider:GetWorldPosition()
-        local endPos = startPos + velocity * deltaTime
-        local sweepRes = self.collider:SweepToWorldPosition(endPos)
-
-        if (sweepRes.hitNode) then
-            if (sweepRes.hitNormal.y > self.kGroundingDot) then
-                self:SetGrounded(true)
-            end
-
-            local initialVelocityY = velocity.y
-
-            velocity = velocity - (sweepRes.hitNormal * Vector.Dot(velocity, sweepRes.hitNormal))
-            deltaTime = deltaTime * (1.0 - sweepRes.hitFraction)
-
-            if (math.abs(sweepRes.hitNormal.y) < vertSlideNormalLimit) then
-                velocity.y = initialVelocityY
-            end
-        else
-            break
-        end
-    end
-
-    return velocity
-end
-
---[[ function ThirdPersonController:Jump()
-    if (self.enableJump and self.grounded) then
-        self.isJumping = true
-        self.isJumpHeld = true
-        self.extVelocity.y = self.jumpSpeed
-        self:SetGrounded(false)
-        self.ignoreGroundingTimer = 0.2
-
-        self.mesh:StopAnimation(self.animationFall)
-        self.mesh:PlayAnimation(self.animationJump, 1, false)
-        self.mesh:QueueAnimation(self.animationFall, self.animationJump, 0, true, 1, 1)
-    end
-end ]]
-
-function ThirdPersonController:SetGrounded(grounded)
-    -- Don't allow grounding if we are ignoring it temporarily (just began jumping)
-    if (grounded and self.ignoreGroundingTimer > 0.0) then
-        return
-    end
-
-    if (self.grounded ~= grounded) then
-        self.grounded = grounded
-
-        if (self.grounded) then
-            self.extVelocity.y = 0.0
-            self.timeSinceGrounded = 0.0
-            self.isJumping = false
-        end
     end
 end
 
