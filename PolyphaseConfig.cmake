@@ -7,7 +7,7 @@
 # current machine (teammate with a different engine layout),
 # this no-ops and the addon's own probe chain takes over.
 if(NOT DEFINED POLYPHASE_PATH OR POLYPHASE_PATH STREQUAL "")
-    if(EXISTS "/opt/polyphase/Polyphase.sln" OR EXISTS "/opt/polyphase/Polyphase.exe")
-        set(POLYPHASE_PATH "/opt/polyphase")
+    if(EXISTS "C:/Polyphase/Polyphase.sln" OR EXISTS "C:/Polyphase/Polyphase.exe")
+        set(POLYPHASE_PATH "C:/Polyphase")
     endif()
 endif()
