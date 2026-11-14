@@ -27,6 +27,8 @@ function ThirdPersonController:Create()
     self.lastNormal = Vec()
     self.tweenID = nil
     self.DirLight = nil
+    self.stunTimer = 0.0
+    self.subscribedStun = false
 
     if self.animationRun == nil then
         self.animationRun = "Run"
@@ -68,12 +70,30 @@ function ThirdPersonController:Start()
     if (not self.camera) then
         self.camera = self.collider:FindChild("Camera", true)
     end
+
+    self.stunTimer = 0.0
+    if self.subscribedStun then
+        SignalBus.Unsubscribe("PlayerStunned", self)
+    end
+    SignalBus.Subscribe("PlayerStunned", self, ThirdPersonController.OnPlayerStunned)
+    self.subscribedStun = true
+end
+
+function ThirdPersonController:OnPlayerStunned(duration)
+    self.stunTimer = math.max(self.stunTimer or 0.0, duration or 2.0)
+    Log.Debug("ThirdPersonController: stunned")
 end
 
 function ThirdPersonController:Stop()
     --Input.LockCursor(false)
     --Input.TrapCursor(false)
     --Input.ShowCursor(true)
+
+    if self.subscribedStun then
+        SignalBus.Unsubscribe("PlayerStunned", self)
+        self.subscribedStun = false
+    end
+    self.stunTimer = 0.0
 end
 
 function ThirdPersonController:Tick(deltaTime)
@@ -84,6 +104,14 @@ function ThirdPersonController:Tick(deltaTime)
 end
 
 function ThirdPersonController:UpdateInput(deltaTime)
+    if self.stunTimer > 0.0 then
+        self.stunTimer = math.max(0.0, self.stunTimer - deltaTime)
+        self.moveDir.x = 0.0
+        self.moveDir.y = 0.0
+        self.moveDir.z = 0.0
+        return
+    end
+
     if (self.enableControl) then
         -- moveDir
         self.moveDir = Vec()
