@@ -49,9 +49,32 @@ BANNER_AUDIO_ARG := $(C_SILENT_WAV)
 BANNER_AUDIO_DEP := $(SILENT_WAV)
 endif
 
-.PHONY: all image 3dsx cia run run-cia clean
+.PHONY: all check-project image 3dsx cia run run-cia clean
 
 all: cia
+
+check-project:
+	@project=$$(sed -n 's/^Project=//p' $(CURDIR)/Config.ini | head -n1); \
+	if [ "$$project" != "$(GAME_NAME)" ]; then \
+		echo "Config.ini Project is '$$project' but this build expects '$(GAME_NAME)'." >&2; \
+		echo "Restore Project=$(GAME_NAME) in Config.ini and remove any stray .octp files." >&2; \
+		exit 1; \
+	fi
+	@octp_count=$$(find $(CURDIR) -maxdepth 1 -name '*.octp' | wc -l); \
+	if [ "$$octp_count" -ne 1 ]; then \
+		echo "Expected exactly one .octp project file, found $$octp_count:" >&2; \
+		find $(CURDIR) -maxdepth 1 -name '*.octp' -printf '  %f\n' >&2; \
+		echo "Keep only $(GAME_NAME).octp and delete the rest." >&2; \
+		exit 1; \
+	fi
+	@octp_file=$$(find $(CURDIR) -maxdepth 1 -name '*.octp' -print -quit); \
+	octp_base=$$(basename "$$octp_file" .octp); \
+	octp_name=$$(sed -n 's/^name=//p' "$$octp_file" | head -n1); \
+	if [ "$$octp_base" != "$(GAME_NAME)" ] || [ "$$octp_name" != "$(GAME_NAME)" ]; then \
+		echo "Project file must be $(GAME_NAME).octp with name=$(GAME_NAME)." >&2; \
+		echo "Found $$octp_file with name='$$octp_name'." >&2; \
+		exit 1; \
+	fi
 
 image:
 	docker build -f $(CURDIR)/Dockerfile --build-arg BASE_IMAGE=$(DOCKER_BASE) -t $(DOCKER_IMAGE) .
@@ -60,13 +83,22 @@ $(SILENT_WAV):
 	mkdir -p $(OUT_3DS_DIR)
 	$(DOCKER_EXEC) python3 -c 'import wave; w = wave.open("$(C_SILENT_WAV)", "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(32000); w.writeframes(bytes(64000)); w.close()'
 
-3dsx: image
+3dsx: check-project image
 	mkdir -p $(OUT_3DS_DIR)
 	$(DOCKER_RUN) build-3ds
-	@if [ ! -f $(TARGET_3DSX) ] && [ -f $(DIST_DIR)/$(GAME_NAME).3dsx ]; then \
+	@if [ -f $(DIST_DIR)/$(GAME_NAME).3dsx ]; then \
 		mv -f $(DIST_DIR)/$(GAME_NAME).3dsx $(TARGET_3DSX); \
 	fi
-	@test -f $(TARGET_3DSX) || { echo "build-3ds did not produce $(TARGET_3DSX)"; exit 1; }
+	@if [ ! -f $(TARGET_3DSX) ]; then \
+		echo "build-3ds did not produce $(TARGET_3DSX)." >&2; \
+		found=$$(find $(DIST_DIR) -maxdepth 1 -name '*.3dsx' -printf '%f\n'); \
+		if [ -n "$$found" ]; then \
+			echo "Found these .3dsx files instead:" >&2; \
+			echo "$$found" >&2; \
+			echo "Check that Roibos.octp has name=Roibos and Config.ini has Project=Roibos." >&2; \
+		fi; \
+		exit 1; \
+	fi
 
 $(BANNER_BNR): $(BANNER_IMG) $(BANNER_AUDIO_DEP)
 	mkdir -p $(OUT_3DS_DIR)
