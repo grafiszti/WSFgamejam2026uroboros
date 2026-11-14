@@ -11,7 +11,7 @@ function ThirdPersonController:Create()
     -- Properties
     self.collider = nil
     self.camera = nil
-    --self.planet = nil
+    self.planet = nil
     self.cameraPivot = nil
     self.mesh = nil
     self.cameraDistance = 10.0
@@ -44,6 +44,8 @@ function ThirdPersonController:Create()
     self.extVelocity = Vec()
     self.moveVelocity = Vec()
     self.meshYaw = 0.0
+    self.lastNormal = Vec()
+    self.tweenID = nil
 
     if self.animationFall == nil then
         self.animationFall = "Fall"
@@ -66,7 +68,7 @@ function ThirdPersonController:GatherProperties()
         { name = "camera",            type = DatumType.Node },
         { name = "cameraPivot",       type = DatumType.Node },
         { name = "mesh",              type = DatumType.Node },
-        --{ name = "planet",            type = DatumType.Node },
+        { name = "planet",            type = DatumType.Node },
         { name = "cameraDistance",    type = DatumType.Float },
         { name = "gravity",           type = DatumType.Float },
         { name = "moveSpeed",         type = DatumType.Float },
@@ -198,15 +200,29 @@ function ThirdPersonController:NewMove(deltaTime)
     self.collider:SetWorldPosition(startPos)
     endPos = startPos + -self.collider:GetUpVector() * 5
     sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
-    if (sweepRes.hitNode) then
+    if (sweepRes.hitNode and (sweepRes.hitNormal ~= self.lastNormal)) then
         --Log.Debug("Score: " .. tostring(sweepRes.hitNormal))
         --self.collider:LookAt(self.collider:GetWorldPosition() + self.collider:GetForwardVector(), sweepRes.hitNormal)
-        local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal,
+        --[[         local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal,
             self.collider:GetForwardVector())
-        self.collider:AddRotation(angle * Vec(0, 0, -1))
-        angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
-        self.collider:AddRotation(angle * Vec(1, 0, 0))
+        self.collider:AddRotation(angle * Vec(0, 0, -1)) ]]
+        if (self.tweenID) then
+            Tween.Cancel(self.tweenID)
+        end
+        local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
+        self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
+            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.12)
+        --self.collider:AddRotation(angle * Vec(1, 0, 0))
     end
+    --[[ if (Vector.Dot(self.collider:GetUpVector(), Vec(0, 1, 0)) <= 0) then
+        local cross = Vector.Cross(self.collider:GetUpVector(), Vec(0, 1, 0))
+        self.planet:RotateAround(self.planet:GetWorldPosition(), cross, 90)
+        self.collider:RotateAround(self.planet:GetWorldPosition(), cross, 90)
+    end
+    startPos = self.collider:GetWorldPosition() + self.collider:GetUpVector() * 0.5
+    self.collider:SetWorldPosition(startPos)
+    endPos = startPos + -self.collider:GetUpVector() * 5
+    sweepRes = self.collider:SweepToWorldPosition(endPos, 2) ]]
 end
 
 function ThirdPersonController:UpdateDrag(deltaTime)
