@@ -24,7 +24,10 @@ end
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
     self.PlayerInProx = false
-    self.hiddenPos = self:GetPosition() - self:GetUpVector() * 2;
+    local myPos = self:GetWorldPosition()
+    myPos.y = 0
+    myPos.z = 0
+    self.hiddenPos = self:GetPosition() + (myPos - self:GetWorldPosition()):Normalize3() * 2;
     self.showPos = self:GetPosition()
 end
 
@@ -37,6 +40,7 @@ end
 function NoteRockToDestroy:Tick(deltaTime)
     if (self.PlayerInProx) then
         if (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
+            self:Hide()
             if not self.NoteNode then
                 Log.Warning("NoteRockToDestroy: missing NoteNode")
                 return
