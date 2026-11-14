@@ -39,6 +39,25 @@ DOCKER_VOLS  := -v $(DIST_DIR):/game -v $(CURDIR):/project
 DOCKER_RUN   := docker run --rm $(DOCKER_VOLS) $(DOCKER_IMAGE)
 DOCKER_EXEC  := docker run --rm --entrypoint "" $(DOCKER_VOLS) $(DOCKER_IMAGE)
 
+# --- Incremental build caches ---
+# The stock build-3ds helper wipes /intermediate every run, and the engine and
+# Bullet objects live inside the container image, so a plain `docker run --rm`
+# recompiles everything. Keep those directories on named volumes so make can
+# reuse the cached objects between builds. Run `make clean-cache` to drop them.
+CACHE_PREFIX     := roibos-3ds-cache
+CACHE_VOLS       := \
+	-v $(CACHE_PREFIX)-project:/intermediate \
+	-v $(CACHE_PREFIX)-engine-intermediate:/polyphase/Engine/Intermediate \
+	-v $(CACHE_PREFIX)-engine-build:/polyphase/Engine/Build \
+	-v $(CACHE_PREFIX)-bullet-intermediate:/polyphase/External/Bullet/Intermediate \
+	-v $(CACHE_PREFIX)-bullet-build:/polyphase/External/Bullet/Build \
+	-v $(CACHE_PREFIX)-standalone-intermediate:/polyphase/Standalone/Intermediate \
+	-v $(CACHE_PREFIX)-standalone-build:/polyphase/Standalone/Build
+DOCKER_RUN_CACHE := docker run --rm $(DOCKER_VOLS) $(CACHE_VOLS) \
+	-e POLYPHASE_IMAGE_ID=$$(docker image inspect --format '{{.Id}}' $(DOCKER_BASE)) \
+	$(DOCKER_IMAGE)
+INCREMENTAL_BUILD := bash /project/Tools/build-3ds-incremental.sh
+
 # bannertool requires an audio track. Fall back to a short silent WAV when the
 # project has not supplied one yet so the CIA pipeline is never blocked on it.
 ifeq ($(shell test -s "$(BANNER_AUDIO)" && echo yes),yes)
@@ -49,7 +68,7 @@ BANNER_AUDIO_ARG := $(C_SILENT_WAV)
 BANNER_AUDIO_DEP := $(SILENT_WAV)
 endif
 
-.PHONY: all check-project image 3dsx cia run run-cia clean
+.PHONY: all check-project image 3dsx cia run run-cia clean clean-cache
 
 all: cia
 
@@ -85,7 +104,7 @@ $(SILENT_WAV):
 
 3dsx: check-project image
 	mkdir -p $(OUT_3DS_DIR)
-	$(DOCKER_RUN) build-3ds
+	$(DOCKER_RUN_CACHE) $(INCREMENTAL_BUILD)
 	@if [ -f $(DIST_DIR)/$(GAME_NAME).3dsx ]; then \
 		mv -f $(DIST_DIR)/$(GAME_NAME).3dsx $(TARGET_3DSX); \
 	fi
@@ -140,3 +159,15 @@ run-cia:
 
 clean:
 	rm -rf $(DIST_DIR)
+
+# Remove the persistent incremental build caches. The next build recompiles
+# the engine, Bullet, and the game from scratch.
+clean-cache:
+	-docker volume rm -f \
+		$(CACHE_PREFIX)-project \
+		$(CACHE_PREFIX)-engine-intermediate \
+		$(CACHE_PREFIX)-engine-build \
+		$(CACHE_PREFIX)-bullet-intermediate \
+		$(CACHE_PREFIX)-bullet-build \
+		$(CACHE_PREFIX)-standalone-intermediate \
+		$(CACHE_PREFIX)-standalone-build
