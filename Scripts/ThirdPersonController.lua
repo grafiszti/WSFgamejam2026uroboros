@@ -21,12 +21,15 @@ function ThirdPersonController:Create()
     self.enableCameraTrace = true
 
     -- State
-    self.moveDir = Vec()
+    self.moveDir = Vec(0, 0, 0)
+    self.vertMoveChange = false
     self.lookVec = Vec()
     self.meshYaw = 0.0
     self.lastNormal = Vec()
     self.tweenID = nil
+    self.tweenTarget = Vec()
     self.DirLight = nil
+    self.Music = nil
 
     if self.animationRun == nil then
         self.animationRun = "Run"
@@ -51,7 +54,8 @@ function ThirdPersonController:GatherProperties()
         { name = "enableCameraTrace", type = DatumType.Bool },
         { name = "animationRun",      type = DatumType.String },
         { name = "animationIdle",     type = DatumType.String },
-        { name = "DirLight",          type = DatumType.Node }
+        { name = "DirLight",          type = DatumType.Node },
+        { name = "Music",             type = DatumType.Asset }
     }
 end
 
@@ -59,6 +63,7 @@ function ThirdPersonController:Start()
     --Input.LockCursor(true)
     --Input.TrapCursor(true)
     --Input.ShowCursor(false)
+    Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
 
     if (not self.collider) then
         self.collider = self:GetParent()
@@ -71,9 +76,7 @@ function ThirdPersonController:Start()
 end
 
 function ThirdPersonController:Stop()
-    --Input.LockCursor(false)
-    --Input.TrapCursor(false)
-    --Input.ShowCursor(true)
+    Audio.StopSounds(self.Music)
 end
 
 function ThirdPersonController:Tick(deltaTime)
@@ -85,6 +88,7 @@ end
 
 function ThirdPersonController:UpdateInput(deltaTime)
     if (self.enableControl) then
+        local oldMoveZ = self.moveDir.z
         -- moveDir
         self.moveDir = Vec()
         if (Input.IsKeyDown(Key.A)) then
@@ -114,6 +118,12 @@ function ThirdPersonController:UpdateInput(deltaTime)
             self.moveDir.z = self.moveDir.z - leftAxisY
         end
 
+        if (Math.Sign(self.moveDir.z) ~= Math.Sign(oldMoveZ)) then
+            self.vertMoveChange = true
+        else
+            self.vertMoveChange = false
+        end
+
         -- Ensure length of moveDir is at most 1.0.
         local moveMag = self.moveDir:Magnitude()
         moveMag = math.min(moveMag, 1.0)
@@ -125,6 +135,9 @@ function ThirdPersonController:UpdateInput(deltaTime)
 end
 
 function ThirdPersonController:NewMove(deltaTime)
+    if (self.vertMoveChange) then
+        self.collider:SetRotation(self.tweenTarget)
+    end
     local moveVector = (self.collider:GetForwardVector() * -self.moveDir.z + self.collider:GetRightVector() * self.moveDir.x)
     local startPos = self.collider:GetWorldPosition()
     --self.collider:SetWorldPosition(startPos)
@@ -139,8 +152,9 @@ function ThirdPersonController:NewMove(deltaTime)
             Tween.Cancel(self.tweenID)
         end
         local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
+        self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
         self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.12)
+            self.tweenTarget, 0.12)
     end
     self.DirLight:LookAt(-self.collider:GetUpVector() * 10 + self.collider:GetForwardVector() * 2)
 end
