@@ -1,9 +1,31 @@
 NoteRockToDestroy = {}
 
+local function DeriveRuneArt(nodeName)
+    if nodeName == nil then
+        return ""
+    end
+
+    local suffix = nil
+    if nodeName:sub(1, 4) == "Rock" then
+        suffix = nodeName:sub(5)
+    elseif nodeName:sub(1, 3) == "SM_" then
+        local candidate = nodeName:sub(4)
+        if candidate:sub(1, 7) == "Tile - " then
+            suffix = candidate:sub(8)
+        end
+    end
+
+    if suffix and (suffix:match("^Dur[1-6]$") or suffix:match("^Mol[1-4]$")) then
+        return "Tile - " .. suffix
+    end
+    return ""
+end
+
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
     self.PlayerInProx = false
     self.HitsRequired = 1
+    if self.RuneArt == nil then self.RuneArt = "" end
     self.hitsRemaining = 1
     self.baseScale = nil
     self.punchTween = nil
@@ -13,6 +35,7 @@ function NoteRockToDestroy:GatherProperties()
     return {
         { name = "NoteNode", type = DatumType.Node },
         { name = "HitsRequired", type = DatumType.Integer },
+        { name = "RuneArt", type = DatumType.String },
     }
 end
 
@@ -20,6 +43,10 @@ function NoteRockToDestroy:Start()
     self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
     self.baseScale = self:GetScale()
     self.punchTween = nil
+
+    if self.RuneArt == nil or self.RuneArt == "" then
+        self.RuneArt = DeriveRuneArt(self:GetName())
+    end
 end
 
 function NoteRockToDestroy:PlayHitFeedback()
@@ -46,6 +73,12 @@ function NoteRockToDestroy:Tick(deltaTime)
                 return
             end
 
+            if self.NoteNode:IsDestroyed() or self.NoteNode:IsPendingDestroy() then
+                Log.Warning("NoteRockToDestroy: NoteNode is no longer valid; removing rock")
+                self:DestroyDeferred()
+                return
+            end
+
             local world = self:GetWorld()
             if not world then
                 return
@@ -64,7 +97,7 @@ function NoteRockToDestroy:Tick(deltaTime)
             self.NoteNode:SetVisible(true)
             self.NoteNode:Start()
             SignalBus.Emit("RuneMined", 0)
-            SignalBus.Emit("RuneRevealed", self.NoteNode)
+            SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
             self:DestroyDeferred()
         end
     end
