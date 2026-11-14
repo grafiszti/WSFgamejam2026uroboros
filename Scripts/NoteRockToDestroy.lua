@@ -1,5 +1,22 @@
 NoteRockToDestroy = {}
 
+local STONE_COLLISION_GROUP = 8
+
+local function ApplyStoneCollisionGroup(node)
+    if node == nil then
+        return
+    end
+
+    if node:IsA("Primitive3D") then
+        node:SetCollisionGroup(STONE_COLLISION_GROUP)
+    end
+
+    local childCount = node:GetNumChildren()
+    for i = 1, childCount do
+        ApplyStoneCollisionGroup(node:GetChild(i))
+    end
+end
+
 local function DeriveRuneArt(nodeName)
     if nodeName == nil then
         return ""
@@ -46,6 +63,8 @@ function NoteRockToDestroy:GatherProperties()
 end
 
 function NoteRockToDestroy:Start()
+    ApplyStoneCollisionGroup(self)
+
     self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
     self.baseScale = self:GetScale()
     self.punchTween = nil
