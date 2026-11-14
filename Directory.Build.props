@@ -9,7 +9,7 @@
      opened. -->
 <Project>
   <PropertyGroup>
-    <PolyphasePath Condition="'$(PolyphasePath)' == '' and Exists('\opt\polyphase\Polyphase.sln')">\opt\polyphase</PolyphasePath>
-    <PolyphasePath Condition="'$(PolyphasePath)' == '' and Exists('\opt\polyphase\Polyphase.exe')">\opt\polyphase</PolyphasePath>
+    <PolyphasePath Condition="'$(PolyphasePath)' == '' and Exists('C:\Polyphase\Polyphase.sln')">C:\Polyphase</PolyphasePath>
+    <PolyphasePath Condition="'$(PolyphasePath)' == '' and Exists('C:\Polyphase\Polyphase.exe')">C:\Polyphase</PolyphasePath>
   </PropertyGroup>
 </Project>
