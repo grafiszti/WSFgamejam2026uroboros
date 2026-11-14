@@ -30,6 +30,8 @@ function ThirdPersonController:Create()
     self.tweenTarget = Vec()
     self.DirLight = nil
     self.Music = nil
+    self.stunTimer = 0.0
+    self.subscribedStun = false
 
     if self.animationRun == nil then
         self.animationRun = "Run"
@@ -63,7 +65,9 @@ function ThirdPersonController:Start()
     --Input.LockCursor(true)
     --Input.TrapCursor(true)
     --Input.ShowCursor(false)
-    Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
+    if self.Music then
+        Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
+    end
 
     if (not self.collider) then
         self.collider = self:GetParent()
@@ -73,10 +77,30 @@ function ThirdPersonController:Start()
     if (not self.camera) then
         self.camera = self.collider:FindChild("Camera", true)
     end
+
+    self.stunTimer = 0.0
+    if self.subscribedStun then
+        SignalBus.Unsubscribe("PlayerStunned", self)
+    end
+    SignalBus.Subscribe("PlayerStunned", self, ThirdPersonController.OnPlayerStunned)
+    self.subscribedStun = true
+end
+
+function ThirdPersonController:OnPlayerStunned(duration)
+    self.stunTimer = math.max(self.stunTimer or 0.0, duration or 2.0)
+    Log.Debug("ThirdPersonController: stunned")
 end
 
 function ThirdPersonController:Stop()
-    Audio.StopSounds(self.Music)
+    if self.Music then
+        Audio.StopSounds(self.Music)
+    end
+
+    if self.subscribedStun then
+        SignalBus.Unsubscribe("PlayerStunned", self)
+        self.subscribedStun = false
+    end
+    self.stunTimer = 0.0
 end
 
 function ThirdPersonController:Tick(deltaTime)
@@ -87,6 +111,14 @@ function ThirdPersonController:Tick(deltaTime)
 end
 
 function ThirdPersonController:UpdateInput(deltaTime)
+    if self.stunTimer > 0.0 then
+        self.stunTimer = math.max(0.0, self.stunTimer - deltaTime)
+        self.moveDir.x = 0.0
+        self.moveDir.y = 0.0
+        self.moveDir.z = 0.0
+        return
+    end
+
     if (self.enableControl) then
         local oldMoveZ = self.moveDir.z
         -- moveDir

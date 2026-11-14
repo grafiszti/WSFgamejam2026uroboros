@@ -24,17 +24,59 @@ end
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
     self.PlayerInProx = false
-    self.hiddenPos = self:GetPosition() - self:GetUpVector() * 2;
-    self.showPos = self:GetPosition()
+    self.HitsRequired = 1
+    self.RuneArt = ""
+    self.hitsRemaining = 1
+    self.baseScale = nil
+    self.punchTween = nil
+    self.hiddenPos = Vec()
+    self.showPos = Vec()
+    self.revealed = false
 end
 
 function NoteRockToDestroy:GatherProperties()
     return {
         { name = "NoteNode", type = DatumType.Node },
+        { name = "HitsRequired", type = DatumType.Integer },
+        { name = "RuneArt", type = DatumType.String },
     }
 end
 
+function NoteRockToDestroy:Start()
+    self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
+    self.baseScale = self:GetScale()
+    self.punchTween = nil
+    self.revealed = false
+
+    if self.RuneArt == nil or self.RuneArt == "" then
+        self.RuneArt = DeriveRuneArt(self:GetName())
+    end
+
+    self.showPos = self:GetPosition()
+    self.hiddenPos = self.showPos - self:GetUpVector() * 2.0
+end
+
+function NoteRockToDestroy:PlayHitFeedback()
+    if not self.baseScale then
+        return
+    end
+
+    if self.punchTween then
+        Tween.Cancel(self.punchTween)
+        self.punchTween = nil
+    end
+
+    local punch = Vec(self.baseScale.x * 0.9, self.baseScale.y * 0.9, self.baseScale.z * 0.9)
+    self.punchTween = Tween.Scale(self, Easing.OutQuad, punch, 0.06, function()
+        self.punchTween = Tween.Scale(self, Easing.OutBack, self.baseScale, 0.12)
+    end)
+end
+
 function NoteRockToDestroy:Tick(deltaTime)
+    if self.revealed then
+        return
+    end
+
     if (self.PlayerInProx) then
         if (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
             if not self.NoteNode then
@@ -61,9 +103,13 @@ function NoteRockToDestroy:Tick(deltaTime)
                 return
             end
 
+            self.revealed = true
             self.NoteNode:Attach(world:GetRootNode(), true)
             self.NoteNode:SetActive(true)
             self.NoteNode:SetVisible(true)
+            self.NoteNode:Start()
+            SignalBus.Emit("RuneMined", 0)
+            SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
             self:Hide(true)
         end
     end
@@ -81,10 +127,10 @@ function NoteRockToDestroy:Hide(fast)
 end
 
 function NoteRockToDestroy:Show()
-    Tween.Position(self, Easing.OutExpo, self.showPos, 1, function()
-        self:SetActive(false)
-        self:SetVisible(false)
-    end)
+    self.revealed = false
+    self:SetActive(true)
+    self:SetVisible(true)
+    Tween.Position(self, Easing.OutExpo, self.showPos, 1.0)
 end
 
 function NoteRockToDestroy:BeginOverlap(me, other)
