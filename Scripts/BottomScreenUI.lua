@@ -11,7 +11,7 @@ local COLOR_SLOT_ACTIVE = Vec(0.25, 0.72, 0.58, 1.0)
 local COLOR_GAUGE_LOW = Vec(0.25, 0.55, 0.55, 1.0)
 local COLOR_GAUGE_HIGH = Vec(0.95, 0.78, 0.25, 1.0)
 
-local STATUS_COLLECT = "SHAKE UP TO COLLECT"
+local STATUS_COLLECT = "SHAKE NEAR A RUNE"
 local STATUS_DRAG = "DRAG A STONE TO THE BOWL"
 local STATUS_FULL = "BOWL FULL"
 local STATUS_TRAY_FULL = "TRAY FULL"
@@ -22,6 +22,8 @@ local STONE_RADIUS = STONE_SIZE * 0.5
 local PLACED_STONE_SIZE = 30.0
 local DRAWER_PADDING = 4.0
 local SLOT_COUNT = 5
+local STONE_FALL_DURATION = 0.55
+local STONE_FALL_START_SCALE = 2.6
 
 local function ResolveCanvas(script)
     local canvas = script:FindChild("BottomScreenCanvas")
@@ -71,12 +73,16 @@ function BottomScreenUI:Create()
     self.drawerZInfluence = 0.6
     self.drawerInvertX = false
     self.drawerInvertY = false
-    self.drawerDamping = 1.0
+    self.drawerFriction = 0.0
     self.drawerRestitution = 0.55
     self.drawerMaxSpeed = 650.0
 
+    self.stoneFallDuration = 0.55
+    self.stoneFallStartScale = 2.6
+
     self.ready = false
     self.subscribed = false
+    self.subscribedNote = false
 
     self.canvasX = 0.0
     self.canvasY = 0.0
@@ -113,14 +119,19 @@ function BottomScreenUI:GatherProperties()
         { name = "drawerZInfluence", type = DatumType.Float },
         { name = "drawerInvertX", type = DatumType.Bool },
         { name = "drawerInvertY", type = DatumType.Bool },
-        { name = "drawerDamping", type = DatumType.Float },
+        { name = "drawerFriction", type = DatumType.Float },
         { name = "drawerRestitution", type = DatumType.Float },
         { name = "drawerMaxSpeed", type = DatumType.Float },
+        { name = "stoneFallDuration", type = DatumType.Float },
+        { name = "stoneFallStartScale", type = DatumType.Float },
     }
 end
 
 function BottomScreenUI:Start()
     self.pointerIndex = math.max(1, math.min(4, math.floor(self.pointerIndex or 1)))
+    self.drawerFriction = math.max(0.0, self.drawerFriction or 0.0)
+    self.stoneFallDuration = math.max(0.05, self.stoneFallDuration or 0.55)
+    self.stoneFallStartScale = math.max(1.0, self.stoneFallStartScale or 2.6)
 
     local canvas = ResolveCanvas(self)
     if not canvas then
@@ -221,6 +232,13 @@ function BottomScreenUI:Start()
                 renderY = stonePosition.y,
                 available = false,
                 placed = false,
+                falling = false,
+                fallTime = 0.0,
+                fallDuration = STONE_FALL_DURATION,
+                spawnX = 0.0,
+                spawnY = 0.0,
+                targetX = 0.0,
+                targetY = 0.0,
             }
         end
     end
@@ -284,6 +302,12 @@ function BottomScreenUI:Start()
     SignalBus.Subscribe("ShakeDetected", self, BottomScreenUI.OnShakeDetected)
     self.subscribed = true
 
+    if self.subscribedNote then
+        SignalBus.Unsubscribe("NoteCollected", self)
+    end
+    SignalBus.Subscribe("NoteCollected", self, BottomScreenUI.OnNoteCollected)
+    self.subscribedNote = true
+
     self.ready = true
     Log.Debug("BottomScreenUI: ready")
 end
@@ -310,7 +334,7 @@ end
 function BottomScreenUI:FindStoneAt(x, y)
     for i = 1, #self.stones do
         local stone = self.stones[i]
-        if stone.available and not stone.placed then
+        if stone.available and not stone.placed and not stone.falling then
             local dx = x - (self.canvasX + stone.x)
             local dy = y - (self.canvasY + stone.y)
             if dx * dx + dy * dy <= STONE_RADIUS * STONE_RADIUS then
@@ -382,22 +406,52 @@ function BottomScreenUI:OnShakeDetected(intensity)
     self.motionFlashTimer = 0.35
     self.motionLabel:SetText("DETECTED")
     self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
+end
+
+function BottomScreenUI:OnNoteCollected(nodeType)
+    if not self.ready then
+        return
+    end
+
+    self.motionFlashTimer = 0.35
+    self.motionLabel:SetText("COLLECTED")
+    self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
     self:ShowNextStone()
+end
+
+function BottomScreenUI:GetStoneLandingY(stone)
+    local targetY = stone.homeY + STONE_RADIUS
+    if targetY < self.drawerMinY then
+        targetY = self.drawerMinY
+    elseif targetY > self.drawerMaxY then
+        targetY = self.drawerMaxY
+    end
+    return targetY
 end
 
 function BottomScreenUI:ShowNextStone()
     for i = 1, #self.stones do
         local stone = self.stones[i]
         if not stone.placed and not stone.available then
+            local startSize = STONE_SIZE * self.stoneFallStartScale
+            local startHalf = startSize * 0.5
+
             stone.available = true
-            stone.x = stone.homeX + STONE_RADIUS
-            stone.y = stone.homeY + STONE_RADIUS
+            stone.falling = true
+            stone.fallTime = 0.0
+            stone.fallDuration = self.stoneFallDuration
+            stone.spawnX = self.drawerX + self.drawerWidth * 0.5
+            stone.spawnY = self.drawerY + self.drawerHeight + startHalf
+            stone.targetX = math.max(self.drawerMinX, math.min(self.drawerMaxX, stone.homeX + STONE_RADIUS))
+            stone.targetY = self:GetStoneLandingY(stone)
+            stone.x = stone.spawnX
+            stone.y = stone.spawnY
             stone.vx = 0.0
             stone.vy = 0.0
-            stone.renderX = stone.homeX
-            stone.renderY = stone.homeY
-            stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
-            stone.node:SetPosition(stone.homeX, stone.homeY)
+            stone.renderX = stone.x - startHalf
+            stone.renderY = stone.y - startHalf
+            stone.node:SetDimensions(startSize, startSize)
+            stone.node:SetPosition(stone.renderX, stone.renderY)
             stone.node:SetColor(COLOR_STONE)
             stone.node:SetVisible(true)
             self.status:SetText(STATUS_DRAG)
@@ -560,10 +614,10 @@ function BottomScreenUI:ResolveStoneCollisions()
 
     for i = 1, #self.stones - 1 do
         local a = self.stones[i]
-        if a.available and not a.placed and a ~= self.dragStone then
+        if a.available and not a.placed and not a.falling and a ~= self.dragStone then
             for j = i + 1, #self.stones do
                 local b = self.stones[j]
-                if b.available and not b.placed and b ~= self.dragStone then
+                if b.available and not b.placed and not b.falling and b ~= self.dragStone then
                     local dx = b.x - a.x
                     local dy = b.y - a.y
                     local distSq = dx * dx + dy * dy
@@ -638,14 +692,14 @@ function BottomScreenUI:UpdateDrawerPhysics(dt)
         accelY = -accelY
     end
 
-    local damping = 1.0 - self.drawerDamping * dt
+    local damping = 1.0 - self.drawerFriction * dt
     if damping < 0.0 then
         damping = 0.0
     end
 
     for i = 1, #self.stones do
         local stone = self.stones[i]
-        if stone.available and not stone.placed and stone ~= self.dragStone then
+        if stone.available and not stone.placed and not stone.falling and stone ~= self.dragStone then
             stone.vx = stone.vx + accelX * dt
             stone.vy = stone.vy + accelY * dt
             stone.vx = stone.vx * damping
@@ -668,8 +722,45 @@ function BottomScreenUI:UpdateDrawerPhysics(dt)
 
     for i = 1, #self.stones do
         local stone = self.stones[i]
-        if stone.available and not stone.placed and stone ~= self.dragStone then
+        if stone.available and not stone.placed and not stone.falling and stone ~= self.dragStone then
             self:ApplyStoneNodePosition(stone)
+        end
+    end
+end
+
+function BottomScreenUI:UpdateFallingStones(dt)
+    if dt <= 0.0 then
+        return
+    end
+
+    for i = 1, #self.stones do
+        local stone = self.stones[i]
+        if stone.falling and not stone.placed then
+            stone.fallTime = stone.fallTime + dt
+            local t = stone.fallTime / stone.fallDuration
+            if t > 1.0 then
+                t = 1.0
+            end
+
+            local eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
+            stone.x = stone.spawnX + (stone.targetX - stone.spawnX) * eased
+            stone.y = stone.spawnY + (stone.targetY - stone.spawnY) * eased
+
+            local scale = self.stoneFallStartScale + (1.0 - self.stoneFallStartScale) * eased
+            local size = STONE_SIZE * scale
+            local half = size * 0.5
+            stone.renderX = stone.x - half
+            stone.renderY = stone.y - half
+            stone.node:SetDimensions(size, size)
+            stone.node:SetPosition(stone.renderX, stone.renderY)
+
+            if t >= 1.0 then
+                stone.falling = false
+                stone.x = stone.targetX
+                stone.y = stone.targetY
+                stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
+                self:ApplyStoneNodePosition(stone)
+            end
         end
     end
 end
@@ -680,9 +771,11 @@ function BottomScreenUI:Tick(deltaTime)
     end
 
     local realDelta = Engine.GetRealDeltaTime()
+    local gameDelta = math.min(Engine.GetGameDeltaTime(), 0.05)
     self.statusTimer = self.statusTimer - realDelta
     self:UpdateMotionIndicator(realDelta)
-    self:UpdateDrawerPhysics(math.min(Engine.GetGameDeltaTime(), 0.05))
+    self:UpdateFallingStones(gameDelta)
+    self:UpdateDrawerPhysics(gameDelta)
 
     if Input.IsPointerPressed(self.pointerIndex) then
         local x, y = Input.GetPointerPosition(self.pointerIndex)
@@ -732,6 +825,10 @@ function BottomScreenUI:Stop()
     if self.subscribed then
         SignalBus.Unsubscribe("ShakeDetected", self)
         self.subscribed = false
+    end
+    if self.subscribedNote then
+        SignalBus.Unsubscribe("NoteCollected", self)
+        self.subscribedNote = false
     end
 
     self.canvas = nil

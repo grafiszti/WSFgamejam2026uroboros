@@ -2,7 +2,7 @@ NoteRockToDestroy = {}
 
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
-    self.PlayerInProx = false;
+    self.PlayerInProx = false
 end
 
 function NoteRockToDestroy:GatherProperties()
@@ -14,18 +14,22 @@ end
 function NoteRockToDestroy:Tick(deltaTime)
     if (self.PlayerInProx) then
         if (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
-            if self.NoteNode then
-                self.NoteNode:Attach(self.world:GetRootNode(), true)
-                self.NoteNode:SetActive(true)
-                self.NoteNode:SetVisible(true)
+            if not self.NoteNode then
+                Log.Warning("NoteRockToDestroy: missing NoteNode")
+                return
             end
-            Node.Destruct(self)
+
+            local world = self:GetWorld()
+            if not world then
+                return
+            end
+
+            self.NoteNode:Attach(world:GetRootNode(), true)
+            self.NoteNode:SetActive(true)
+            self.NoteNode:SetVisible(true)
+            self:DestroyDeferred()
         end
     end
-end
-
-function NoteRockToDestroy:Destroy()
-
 end
 
 function NoteRockToDestroy:BeginOverlap(me, other)
