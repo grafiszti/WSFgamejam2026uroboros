@@ -18,10 +18,11 @@ function NoteObject:Tick(deltaTime)
             self.PlayerInProx = false
             self:EnableOverlaps(false)
             local startPos = self:GetWorldPosition()
-            Tween.Value(Easing.OutBack, 0.0, 1.0, 3.0, function(value, pct, finished)
-                local lerped = Vector.Lerp(startPos, cam:GetPosition(), value)
+            Tween.Value(Easing.OutBack, 0.0, 1.0, 2.0, function(value, pct, finished)
+                local lerped = Vector.Lerp(startPos, cam:GetWorldPosition(), value)
                 self:SetWorldPosition(lerped)
                 if (finished) then
+                    SignalBus.Emit("NoteCollected", self.NodeType)
                     Node.Destruct(self)
                 end
             end)

@@ -179,7 +179,7 @@ function ThirdPersonController:NewMove(deltaTime)
         end
         local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
         self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.14)
+            self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.12)
     end
 end
 
