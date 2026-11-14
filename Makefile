@@ -1,0 +1,110 @@
+# --- Project Configuration ---
+GAME_NAME    := WSFgamejam2026uroboros
+TITLE_ID     := 000400000F123400
+PRODUCT_CODE := CTR-N-URBR
+
+# --- Docker & Paths ---
+# Derived from the stock Polyphase image; Dockerfile adds makerom, bannertool
+# and cxitool, which the stock image does not ship.
+DOCKER_BASE  := polyphase-engine:latest
+DOCKER_IMAGE := polyphase-engine-3ds
+DIST_DIR     := $(CURDIR)/dist
+OUT_3DS_DIR  := $(DIST_DIR)/3DS
+
+# --- Banner & Audio Assets (relative to project root) ---
+BANNER_IMG   := Assets/banner.png
+BANNER_AUDIO := Assets/audio.wav
+
+# --- Local emulator ---
+# Use a native azahar binary when present; otherwise fall back to the Flatpak
+# install. Override with e.g. `make run AZAHAR=/path/to/azahar`.
+AZAHAR           ?= $(shell command -v azahar 2>/dev/null)
+AZAHAR_FLATPAK_ID := org.azahar_emu.Azahar
+
+# --- Generated Files (container paths) ---
+C_3DSX       := /game/3DS/$(GAME_NAME).3dsx
+C_CXI        := /game/3DS/$(GAME_NAME).cxi
+C_CIA        := /game/3DS/$(GAME_NAME).cia
+C_BNR        := /game/3DS/banner.bnr
+C_SILENT_WAV := /game/3DS/silent.wav
+
+# --- Generated Files (host paths for Make dependency tracking) ---
+TARGET_3DSX  := $(OUT_3DS_DIR)/$(GAME_NAME).3dsx
+TARGET_CXI   := $(OUT_3DS_DIR)/$(GAME_NAME).cxi
+TARGET_CIA   := $(OUT_3DS_DIR)/$(GAME_NAME).cia
+BANNER_BNR   := $(OUT_3DS_DIR)/banner.bnr
+SILENT_WAV   := $(OUT_3DS_DIR)/silent.wav
+
+DOCKER_VOLS  := -v $(DIST_DIR):/game -v $(CURDIR):/project
+DOCKER_RUN   := docker run --rm $(DOCKER_VOLS) $(DOCKER_IMAGE)
+DOCKER_EXEC  := docker run --rm --entrypoint "" $(DOCKER_VOLS) $(DOCKER_IMAGE)
+
+# bannertool requires an audio track. Fall back to a short silent WAV when the
+# project has not supplied one yet so the CIA pipeline is never blocked on it.
+ifeq ($(shell test -s "$(BANNER_AUDIO)" && echo yes),yes)
+BANNER_AUDIO_ARG := /project/$(BANNER_AUDIO)
+BANNER_AUDIO_DEP := $(BANNER_AUDIO)
+else
+BANNER_AUDIO_ARG := $(C_SILENT_WAV)
+BANNER_AUDIO_DEP := $(SILENT_WAV)
+endif
+
+.PHONY: all image 3dsx cia run run-cia clean
+
+all: cia
+
+image:
+	docker build -f $(CURDIR)/Dockerfile --build-arg BASE_IMAGE=$(DOCKER_BASE) -t $(DOCKER_IMAGE) .
+
+$(SILENT_WAV):
+	mkdir -p $(OUT_3DS_DIR)
+	$(DOCKER_EXEC) python3 -c 'import wave; w = wave.open("$(C_SILENT_WAV)", "wb"); w.setnchannels(1); w.setsampwidth(2); w.setframerate(32000); w.writeframes(bytes(64000)); w.close()'
+
+3dsx: image
+	mkdir -p $(OUT_3DS_DIR)
+	$(DOCKER_RUN) build-3ds
+	@if [ ! -f $(TARGET_3DSX) ] && [ -f $(DIST_DIR)/$(GAME_NAME).3dsx ]; then \
+		mv -f $(DIST_DIR)/$(GAME_NAME).3dsx $(TARGET_3DSX); \
+	fi
+	@test -f $(TARGET_3DSX) || { echo "build-3ds did not produce $(TARGET_3DSX)"; exit 1; }
+
+$(BANNER_BNR): $(BANNER_IMG) $(BANNER_AUDIO_DEP)
+	mkdir -p $(OUT_3DS_DIR)
+	$(DOCKER_EXEC) bannertool makebanner -i /project/$(BANNER_IMG) -a $(BANNER_AUDIO_ARG) -o $(C_BNR)
+
+$(TARGET_CXI): 3dsx $(BANNER_BNR)
+	$(DOCKER_EXEC) cxitool -t $(TITLE_ID) -b $(C_BNR) -c $(PRODUCT_CODE) $(C_3DSX) $(C_CXI)
+
+$(TARGET_CIA): $(TARGET_CXI)
+	$(DOCKER_EXEC) makerom -f cia -o $(C_CIA) -target t -i $(C_CXI):0:0 -ignoresign
+	@echo "Built CIA successfully: $(TARGET_CIA)"
+
+cia: $(TARGET_CIA)
+
+# Build the CIA, install it into Azahar, and open Azahar.
+run: cia
+	@$(MAKE) --no-print-directory run-cia
+
+# Install the existing CIA into Azahar and open Azahar without rebuilding.
+# Launch "WSFgamejam2026uroboros" from Azahar's game list afterwards.
+run-cia:
+	@test -f "$(TARGET_CIA)" || { \
+		echo "Missing $(TARGET_CIA). Run 'make cia' first." >&2; \
+		exit 1; \
+	}
+	@set -e; \
+	if [ -n "$(AZAHAR)" ]; then \
+		run_azahar() { "$(AZAHAR)" "$$@"; }; \
+	elif command -v flatpak >/dev/null 2>&1 && flatpak info $(AZAHAR_FLATPAK_ID) >/dev/null 2>&1; then \
+		run_azahar() { flatpak run $(AZAHAR_FLATPAK_ID) "$$@"; }; \
+	else \
+		echo "Azahar not found. Install Azahar or set AZAHAR=/path/to/azahar." >&2; \
+		exit 1; \
+	fi; \
+	echo "Installing $(TARGET_CIA) into Azahar..."; \
+	run_azahar -i "$(abspath $(TARGET_CIA))"; \
+	echo "Opening Azahar. Launch 'WSFgamejam2026uroboros' from the game list."; \
+	run_azahar
+
+clean:
+	rm -rf $(DIST_DIR)

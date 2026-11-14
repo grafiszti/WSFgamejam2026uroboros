@@ -1,0 +1,71 @@
+name: Build 3DS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 3ds-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          set -eux
+          df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Pull Polyphase base image
+        run: |
+          set -eux
+          docker pull polyphaselabs/polyphase-engine:latest
+          docker tag polyphaselabs/polyphase-engine:latest polyphase-engine:latest
+
+      - name: Build 3DSX and CIA
+        run: make cia
+
+      - name: Verify artifacts
+        run: |
+          set -eux
+          test -s dist/3DS/WSFgamejam2026uroboros.3dsx
+          test -s dist/3DS/WSFgamejam2026uroboros.cxi
+          test -s dist/3DS/WSFgamejam2026uroboros.cia
+          ls -lh dist/3DS
+
+      - name: Upload 3DSX
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSFgamejam2026uroboros-3dsx
+          path: dist/3DS/WSFgamejam2026uroboros.3dsx
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload CIA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WSFgamejam2026uroboros-cia
+          path: |
+            dist/3DS/WSFgamejam2026uroboros.cia
+            dist/3DS/WSFgamejam2026uroboros.cxi
+          if-no-files-found: error
+          retention-days: 14

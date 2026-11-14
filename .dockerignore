@@ -1,0 +1,22 @@
+# The derived image only installs makerom/bannertool/cxitool on top of the
+# Polyphase base image; the game itself is bind-mounted at build time. Keep the
+# build context small by excluding VCS data, agent tooling, and build outputs.
+
+.git
+.gitignore
+.github
+.opencode
+
+# Local build caches and artifacts
+Packaged
+Generated
+Intermediate
+Saves
+dist
+output
+.tmp
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+*~
