@@ -19,6 +19,7 @@ function ThirdPersonController:Create()
     self.enableControl = true
     self.enableFollowCam = false
     self.enableCameraTrace = true
+    self.AnimatedSprite = nil
 
     -- State
     self.moveDir = Vec(0, 0, 0)
@@ -32,13 +33,6 @@ function ThirdPersonController:Create()
     self.Music = nil
     self.stunTimer = 0.0
     self.subscribedStun = false
-
-    if self.animationRun == nil then
-        self.animationRun = "Run"
-    end
-    if self.animationIdle == nil then
-        self.animationIdle = "Idle"
-    end
 end
 
 function ThirdPersonController:GatherProperties()
@@ -54,17 +48,13 @@ function ThirdPersonController:GatherProperties()
         { name = "enableControl",     type = DatumType.Bool },
         { name = "enableFollowCam",   type = DatumType.Bool },
         { name = "enableCameraTrace", type = DatumType.Bool },
-        { name = "animationRun",      type = DatumType.String },
-        { name = "animationIdle",     type = DatumType.String },
         { name = "DirLight",          type = DatumType.Node },
-        { name = "Music",             type = DatumType.Asset }
+        { name = "Music",             type = DatumType.Asset },
+        { name = "AnimatedSprite",    type = DatumType.Node }
     }
 end
 
 function ThirdPersonController:Start()
-    --Input.LockCursor(true)
-    --Input.TrapCursor(true)
-    --Input.ShowCursor(false)
     if self.Music then
         Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
     end
@@ -107,7 +97,6 @@ function ThirdPersonController:Tick(deltaTime)
     self:UpdateInput(deltaTime)
     self:NewMove(deltaTime)
     self:UpdateCamera(deltaTime)
-    self:UpdateMesh(deltaTime)
 end
 
 function ThirdPersonController:UpdateInput(deltaTime)
@@ -202,7 +191,7 @@ function ThirdPersonController:UpdateCamera(deltaTime)
 
         if (Input.IsKeyPressed(Key.Q) or Input.IsGamepadPressed(Gamepad.L1)) then
             -- Move camera behind player
-            self.camera:SetWorldPosition(colliderPos - self.mesh:GetForwardVector() * self.cameraDistance)
+            self.camera:SetWorldPosition(colliderPos - self.collider:GetForwardVector() * self.cameraDistance)
         end
 
         local deltaPos = self.camera:GetWorldPosition() - colliderPos
@@ -228,15 +217,6 @@ function ThirdPersonController:UpdateCamera(deltaTime)
         self.camera:Attach(self.cameraPivot)
         self.camera:SetRotation(Vec(0, 0, 0))
 
-        --[[ local lookRot = self.lookVec * self.lookSpeed
-
-        -- Adjust rotation of camera pivot based on player input
-        local camPivotRot = self.cameraPivot:GetRotation()
-        camPivotRot.y = camPivotRot.y - lookRot.x * deltaTime
-        camPivotRot.x = camPivotRot.x - lookRot.y * deltaTime
-        camPivotRot.x = Math.Clamp(camPivotRot.x, -89.9, 89.9)
-        self.cameraPivot:SetRotation(camPivotRot) ]]
-
         -- Adjust camera distance
         self.camera:SetPosition(Vec(0, 0, self.cameraDistance))
     end
@@ -254,35 +234,6 @@ function ThirdPersonController:UpdateCamera(deltaTime)
             self.camera:SetWorldPosition(pos)
         end
     end
-end
-
-function ThirdPersonController:UpdateMesh(deltaTime)
-    -- Update orientation of the mesh if the player is moving
-    if (math.abs(self.moveDir.x) >= 0.01 or
-            math.abs(self.moveDir.z) >= 0.01) then
-        local camYaw = self:GetCameraYaw()
-        local moveDir = Vector.Rotate(self.moveDir, camYaw, Vec(0, 1, 0))
-
-        local targetYaw = math.atan(-moveDir.x, -moveDir.z)
-        targetYaw = math.deg(targetYaw)
-
-        self.meshYaw = Math.ApproachAngle(self.meshYaw, targetYaw, 1000.0, deltaTime)
-        self.mesh:SetRotation(Vec(0, self.meshYaw, 0))
-    end
-
-    -- Update looping animation
-    --[[ if (not self.grounded and self.timeSinceGrounded > 0.1) then
-        -- Don't play fall animation if jump animation is playing.
-        -- Wait until it finishes so that we get a seamless transition between
-        -- the end of the jump animation and the beginning of the fall animation.
-        if (not self.mesh:IsAnimationPlaying(self.animationJump)) then
-            self.mesh:PlayAnimation(self.animationFall, 0, true, 1, 1)
-        end
-    elseif (self.moveVelocity:Length2() > 1.0) then
-        self.mesh:PlayAnimation(self.animationRun, 0, true, 1.5, 1)
-    else
-        self.mesh:PlayAnimation(self.animationIdle, 0, true, 1, 1)
-    end ]]
 end
 
 function ThirdPersonController:GetCameraYaw()
