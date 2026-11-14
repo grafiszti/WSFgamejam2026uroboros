@@ -150,7 +150,7 @@ function ThirdPersonController:UpdateInput(deltaTime)
             self.moveDir.z = self.moveDir.z - leftAxisY
         end
 
-        if (self.moveDir.z ~= 0.0 and Math.Sign(self.moveDir.z) ~= Math.Sign(oldMoveZ)) then
+        if (self.moveDir.z ~= 0.0 and (Math.Sign(self.moveDir.z) ~= Math.Sign(oldMoveZ) or oldMoveZ == 0.0)) then
             self.vertMoveChange = true
         else
             self.vertMoveChange = false
