@@ -7,6 +7,10 @@ ThirdPersonController = {}
 
 ThirdPersonController.kGroundingDot = 0.9
 
+local kEnvironmentMask = 0x02
+local kStoneGroup = 0x08
+local kSolidMask = kEnvironmentMask + kStoneGroup
+
 function ThirdPersonController:Create()
     -- Properties
     self.collider = nil
@@ -178,7 +182,7 @@ function ThirdPersonController:NewMove(deltaTime)
     startPos = self.collider:GetWorldPosition() + self.collider:GetUpVector() * 0.2
     self.collider:SetWorldPosition(startPos)
     endPos = startPos + -self.collider:GetUpVector() * 5
-    sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
+    sweepRes = self.collider:SweepToWorldPosition(endPos, kSolidMask)
     if (sweepRes.hitNode and (sweepRes.hitNormal ~= self.lastNormal)) then
         if (self.tweenID) then
             Tween.Cancel(self.tweenID)
@@ -245,8 +249,7 @@ function ThirdPersonController:UpdateCamera(deltaTime)
     if (self.enableCameraTrace) then
         local rayStart = self.collider:GetWorldPosition()
         local rayEnd = self.camera:GetWorldPosition()
-        local colMask = 0x02 -- Default collision group for environment
-        local res = self.world:RayTest(rayStart, rayEnd, colMask)
+        local res = self.world:RayTest(rayStart, rayEnd, kSolidMask)
 
         if (res.hitNode) then
             -- The trace hit something, so place the camera at the hit location
