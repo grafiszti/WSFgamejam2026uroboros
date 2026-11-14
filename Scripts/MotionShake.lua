@@ -4,19 +4,31 @@ local EPSILON = 0.0001
 
 function MotionShake:Create()
     self.enabled = true
-    self.upThreshold = 0.35
-    self.releaseThreshold = 0.12
-    self.cooldown = 0.75
-    self.smoothing = 8.0
-    self.calibrationTime = 0.5
+    self.upThreshold = 0.15
+    self.releaseThreshold = 0.05
+    self.cooldown = 0.45
+    self.smoothing = 12.0
+    self.calibrationTime = 0.30
     self.invertUp = false
     self.useGyro = false
     self.gyroThreshold = 1.5
     self.enableButtonFallback = true
 
+    self.accelX = 0.0
+    self.accelY = 0.0
+    self.accelZ = 0.0
     self.gravityX = 0.0
     self.gravityY = 0.0
     self.gravityZ = 1.0
+    self.linearX = 0.0
+    self.linearY = 0.0
+    self.linearZ = 0.0
+    self.neutralGravityX = 0.0
+    self.neutralGravityY = 0.0
+    self.neutralGravityZ = 0.0
+    self.gyroX = 0.0
+    self.gyroY = 0.0
+    self.gyroZ = 0.0
     self.hasGravity = false
     self.calibrationTimer = 0.0
     self.cooldownTimer = 0.0
@@ -44,6 +56,18 @@ function MotionShake:GatherProperties()
 end
 
 function MotionShake:Start()
+    self.accelX = 0.0
+    self.accelY = 0.0
+    self.accelZ = 0.0
+    self.linearX = 0.0
+    self.linearY = 0.0
+    self.linearZ = 0.0
+    self.neutralGravityX = 0.0
+    self.neutralGravityY = 0.0
+    self.neutralGravityZ = 0.0
+    self.gyroX = 0.0
+    self.gyroY = 0.0
+    self.gyroZ = 0.0
     self.hasGravity = false
     self.calibrationTimer = math.max(0.0, self.calibrationTime)
     self.cooldownTimer = 0.0
@@ -56,6 +80,70 @@ end
 
 function MotionShake:GetIntensity()
     return self.intensity
+end
+
+function MotionShake:IsCalibrated()
+    return self.calibrated
+end
+
+function MotionShake:GetAccelerationX()
+    return self.accelX
+end
+
+function MotionShake:GetAccelerationY()
+    return self.accelY
+end
+
+function MotionShake:GetAccelerationZ()
+    return self.accelZ
+end
+
+function MotionShake:GetGravityX()
+    return self.gravityX
+end
+
+function MotionShake:GetGravityY()
+    return self.gravityY
+end
+
+function MotionShake:GetGravityZ()
+    return self.gravityZ
+end
+
+function MotionShake:GetGravityDeltaX()
+    return self.gravityX - self.neutralGravityX
+end
+
+function MotionShake:GetGravityDeltaY()
+    return self.gravityY - self.neutralGravityY
+end
+
+function MotionShake:GetGravityDeltaZ()
+    return self.gravityZ - self.neutralGravityZ
+end
+
+function MotionShake:GetLinearX()
+    return self.linearX
+end
+
+function MotionShake:GetLinearY()
+    return self.linearY
+end
+
+function MotionShake:GetLinearZ()
+    return self.linearZ
+end
+
+function MotionShake:GetGyroX()
+    return self.gyroX
+end
+
+function MotionShake:GetGyroY()
+    return self.gyroY
+end
+
+function MotionShake:GetGyroZ()
+    return self.gyroZ
 end
 
 function MotionShake:GetShakeCount()
@@ -85,6 +173,9 @@ function MotionShake:Tick(deltaTime)
     local ax = accel.x or 0.0
     local ay = accel.y or 0.0
     local az = accel.z or 0.0
+    self.accelX = ax
+    self.accelY = ay
+    self.accelZ = az
 
     if not self.hasGravity then
         self.gravityX = ax
@@ -106,12 +197,18 @@ function MotionShake:Tick(deltaTime)
 
     if not self.calibrated then
         self.calibrated = true
+        self.neutralGravityX = self.gravityX
+        self.neutralGravityY = self.gravityY
+        self.neutralGravityZ = self.gravityZ
         Log.Debug("MotionShake: calibrated")
     end
 
     local lx = ax - self.gravityX
     local ly = ay - self.gravityY
     local lz = az - self.gravityZ
+    self.linearX = lx
+    self.linearY = ly
+    self.linearZ = lz
 
     local gravityLength = math.sqrt(self.gravityX * self.gravityX +
         self.gravityY * self.gravityY + self.gravityZ * self.gravityZ)
@@ -133,7 +230,7 @@ function MotionShake:Tick(deltaTime)
     end
 
     local debugPressed = false
-    if self.enableButtonFallback then
+    if self.enableButtonFallback and Engine.IsEditor() then
         debugPressed = Input.IsGamepadPressed(Gamepad.Y) or Input.IsKeyPressed(Key.G)
     end
 
@@ -154,6 +251,9 @@ function MotionShake:Tick(deltaTime)
             local gx = gyro.x or 0.0
             local gy = gyro.y or 0.0
             local gz = gyro.z or 0.0
+            self.gyroX = gx
+            self.gyroY = gy
+            self.gyroZ = gz
             local gyroLength = math.sqrt(gx * gx + gy * gy + gz * gz)
             if gyroLength > self.gyroThreshold and not debugPressed then
                 self.intensity = 0.0
@@ -164,6 +264,7 @@ function MotionShake:Tick(deltaTime)
         self.shakeCount = self.shakeCount + 1
         self.shakePending = true
         self.intensity = 1.0
+        Log.Debug("MotionShake: fire debug=" .. tostring(debugPressed) .. " up=" .. tostring(upImpulse))
         SignalBus.Emit("ShakeDetected", 1.0)
     end
 
@@ -173,6 +274,18 @@ function MotionShake:Tick(deltaTime)
 end
 
 function MotionShake:Stop()
+    self.accelX = 0.0
+    self.accelY = 0.0
+    self.accelZ = 0.0
+    self.linearX = 0.0
+    self.linearY = 0.0
+    self.linearZ = 0.0
+    self.neutralGravityX = 0.0
+    self.neutralGravityY = 0.0
+    self.neutralGravityZ = 0.0
+    self.gyroX = 0.0
+    self.gyroY = 0.0
+    self.gyroZ = 0.0
     self.hasGravity = false
     self.calibrationTimer = 0.0
     self.cooldownTimer = 0.0
