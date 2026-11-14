@@ -47,26 +47,26 @@ jobs:
       - name: Verify artifacts
         run: |
           set -eux
-          test -s dist/3DS/WSFgamejam2026uroboros.3dsx
-          test -s dist/3DS/WSFgamejam2026uroboros.cxi
-          test -s dist/3DS/WSFgamejam2026uroboros.cia
+          test -s dist/3DS/Roibos.3dsx
+          test -s dist/3DS/Roibos.cxi
+          test -s dist/3DS/Roibos.cia
           ls -lh dist/3DS
 
       - name: Upload 3DSX
         uses: actions/upload-artifact@v4
         with:
-          name: WSFgamejam2026uroboros-3dsx
-          path: dist/3DS/WSFgamejam2026uroboros.3dsx
+          name: Roibos-3dsx
+          path: dist/3DS/Roibos.3dsx
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload CIA
         uses: actions/upload-artifact@v4
         with:
-          name: WSFgamejam2026uroboros-cia
+          name: Roibos-cia
           path: |
-            dist/3DS/WSFgamejam2026uroboros.cia
-            dist/3DS/WSFgamejam2026uroboros.cxi
+            dist/3DS/Roibos.cia
+            dist/3DS/Roibos.cxi
           if-no-files-found: error
           retention-days: 14
 
@@ -88,7 +88,7 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: WSFgamejam2026uroboros-*
+          pattern: Roibos-*
           path: release-assets
           merge-multiple: true
 
@@ -110,8 +110,8 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "${{ steps.version.outputs.tag }}" \
-            release-assets/WSFgamejam2026uroboros.3dsx \
-            release-assets/WSFgamejam2026uroboros.cia \
+            release-assets/Roibos.3dsx \
+            release-assets/Roibos.cia \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "${{ steps.version.outputs.tag }}" \

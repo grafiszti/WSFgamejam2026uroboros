@@ -1,7 +1,7 @@
 # --- Project Configuration ---
-GAME_NAME    := WSFgamejam2026uroboros
+GAME_NAME    := Roibos
 TITLE_ID     := 000400000F123400
-PRODUCT_CODE := CTR-N-URBR
+PRODUCT_CODE := CTR-N-ROIB
 
 # --- Docker & Paths ---
 # Derived from the stock Polyphase image; Dockerfile adds makerom, bannertool
@@ -86,7 +86,7 @@ run: cia
 	@$(MAKE) --no-print-directory run-cia
 
 # Install the existing CIA into Azahar and open Azahar without rebuilding.
-# Launch "WSFgamejam2026uroboros" from Azahar's game list afterwards.
+# Launch "Roibos" from Azahar's game list afterwards.
 run-cia:
 	@test -f "$(TARGET_CIA)" || { \
 		echo "Missing $(TARGET_CIA). Run 'make cia' first." >&2; \
@@ -103,7 +103,7 @@ run-cia:
 	fi; \
 	echo "Installing $(TARGET_CIA) into Azahar..."; \
 	run_azahar -i "$(abspath $(TARGET_CIA))"; \
-	echo "Opening Azahar. Launch 'WSFgamejam2026uroboros' from the game list."; \
+	echo "Opening Azahar. Launch 'Roibos' from the game list."; \
 	run_azahar
 
 clean:
