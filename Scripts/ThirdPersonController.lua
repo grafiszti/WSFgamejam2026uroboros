@@ -11,48 +11,23 @@ function ThirdPersonController:Create()
     -- Properties
     self.collider = nil
     self.camera = nil
-    self.planet = nil
     self.cameraPivot = nil
     self.mesh = nil
     self.cameraDistance = 10.0
-    self.gravity = -9.8
     self.moveSpeed = 7.0
-    self.lookSpeed = 200.0
-    self.moveAccel = 100.0
-    --self.jumpSpeed = 7.0
-    self.jumpGravScale = 0.5
-    self.moveDrag = 100.0
-    self.extDrag = 20.0
-    --self.airControl = 0.1
-    --self.vertSlideLimit = 0.35
     self.followCamHeight = 4.0
     self.enableControl = true
-    --self.enableJump = true
     self.enableFollowCam = false
     self.enableCameraTrace = true
-    --self.mouseSensitivity = 0.05
 
     -- State
     self.moveDir = Vec()
     self.lookVec = Vec()
-    self.jumpTimer = 0.0
-    self.isJumping = false
-    self.isJumpHeld = false
-    self.ignoreGroundingTimer = 0.0
-    self.timeSinceGrounded = 0.0
-    self.grounded = false
-    self.extVelocity = Vec()
-    self.moveVelocity = Vec()
     self.meshYaw = 0.0
     self.lastNormal = Vec()
     self.tweenID = nil
+    self.DirLight = nil
 
-    if self.animationFall == nil then
-        self.animationFall = "Fall"
-    end
-    if self.animationJump == nil then
-        self.animationJump = "Jump"
-    end
     if self.animationRun == nil then
         self.animationRun = "Run"
     end
@@ -68,28 +43,15 @@ function ThirdPersonController:GatherProperties()
         { name = "camera",            type = DatumType.Node },
         { name = "cameraPivot",       type = DatumType.Node },
         { name = "mesh",              type = DatumType.Node },
-        { name = "planet",            type = DatumType.Node },
         { name = "cameraDistance",    type = DatumType.Float },
-        { name = "gravity",           type = DatumType.Float },
         { name = "moveSpeed",         type = DatumType.Float },
-        { name = "lookSpeed",         type = DatumType.Float },
-        { name = "moveAccel",         type = DatumType.Float },
-        { name = "jumpSpeed",         type = DatumType.Float },
-        { name = "jumpGravScale",     type = DatumType.Float },
-        { name = "moveDrag",          type = DatumType.Float },
-        { name = "extDrag",           type = DatumType.Float },
-        { name = "airControl",        type = DatumType.Float },
-        { name = "vertSlideLimit",    type = DatumType.Float },
         { name = "followCamHeight",   type = DatumType.Float },
         { name = "enableControl",     type = DatumType.Bool },
-        { name = "enableJump",        type = DatumType.Bool },
         { name = "enableFollowCam",   type = DatumType.Bool },
         { name = "enableCameraTrace", type = DatumType.Bool },
-        { name = "mouseSensitivity",  type = DatumType.Float },
-        { name = "animationFall",     type = DatumType.String },
-        { name = "animationJump",     type = DatumType.String },
         { name = "animationRun",      type = DatumType.String },
-        { name = "animationIdle",     type = DatumType.String }
+        { name = "animationIdle",     type = DatumType.String },
+        { name = "DirLight",          type = DatumType.Node }
     }
 end
 
@@ -159,7 +121,6 @@ function ThirdPersonController:UpdateInput(deltaTime)
         self.moveDir = self.moveDir * moveMag
     else
         self.moveDir = Vec()
-        self.lookDelta = Vec()
     end
 end
 
@@ -181,6 +142,7 @@ function ThirdPersonController:NewMove(deltaTime)
         self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
             self.collider:GetRotation() + (angle * Vec(1, 0, 0)), 0.12)
     end
+    self.DirLight:LookAt(-self.collider:GetUpVector() * 10 + self.collider:GetForwardVector() * 2)
 end
 
 function ThirdPersonController:UpdateCamera(deltaTime)
@@ -220,14 +182,14 @@ function ThirdPersonController:UpdateCamera(deltaTime)
         self.camera:Attach(self.cameraPivot)
         self.camera:SetRotation(Vec(0, 0, 0))
 
-        local lookRot = self.lookVec * self.lookSpeed
+        --[[ local lookRot = self.lookVec * self.lookSpeed
 
         -- Adjust rotation of camera pivot based on player input
         local camPivotRot = self.cameraPivot:GetRotation()
         camPivotRot.y = camPivotRot.y - lookRot.x * deltaTime
         camPivotRot.x = camPivotRot.x - lookRot.y * deltaTime
         camPivotRot.x = Math.Clamp(camPivotRot.x, -89.9, 89.9)
-        self.cameraPivot:SetRotation(camPivotRot)
+        self.cameraPivot:SetRotation(camPivotRot) ]]
 
         -- Adjust camera distance
         self.camera:SetPosition(Vec(0, 0, self.cameraDistance))
@@ -263,7 +225,7 @@ function ThirdPersonController:UpdateMesh(deltaTime)
     end
 
     -- Update looping animation
-    if (not self.grounded and self.timeSinceGrounded > 0.1) then
+    --[[ if (not self.grounded and self.timeSinceGrounded > 0.1) then
         -- Don't play fall animation if jump animation is playing.
         -- Wait until it finishes so that we get a seamless transition between
         -- the end of the jump animation and the beginning of the fall animation.
@@ -274,7 +236,7 @@ function ThirdPersonController:UpdateMesh(deltaTime)
         self.mesh:PlayAnimation(self.animationRun, 0, true, 1.5, 1)
     else
         self.mesh:PlayAnimation(self.animationIdle, 0, true, 1, 1)
-    end
+    end ]]
 end
 
 function ThirdPersonController:GetCameraYaw()

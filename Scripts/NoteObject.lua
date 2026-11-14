@@ -18,7 +18,7 @@ function NoteObject:Tick(deltaTime)
             self.PlayerInProx = false
             self:EnableOverlaps(false)
             local startPos = self:GetWorldPosition()
-            Tween.Value(Easing.OutBack, 0.0, 1.0, 2.0, function(value, pct, finished)
+            Tween.Value(Easing.OutExpo, 0.0, 1.0, 0.36, function(value, pct, finished)
                 local lerped = Vector.Lerp(startPos, cam:GetWorldPosition(), value)
                 self:SetWorldPosition(lerped)
                 if (finished) then
