@@ -1,16 +1,40 @@
 NoteObject = {}
 
+local function DeriveRuneArt(nodeName)
+    if nodeName == nil then
+        return ""
+    end
+
+    local suffix = nil
+    if nodeName:sub(1, 4) == "Rock" then
+        suffix = nodeName:sub(5)
+    elseif nodeName:sub(1, 3) == "SM_" then
+        local candidate = nodeName:sub(4)
+        if candidate:sub(1, 7) == "Tile - " then
+            suffix = candidate:sub(8)
+        end
+    end
+
+    if suffix and (suffix:match("^Dur[1-6]$") or suffix:match("^Mol[1-4]$")) then
+        return "Tile - " .. suffix
+    end
+    return ""
+end
+
 function NoteObject:Create()
     if self.NodeType == nil then self.NodeType = 0 end
+    if self.RuneArt == nil then self.RuneArt = "" end
     self.PlayerInProx = false
     self.collecting = false
     self.tweenID = nil
     self.subscribed = false
+    self.subscribedReveal = false
 end
 
 function NoteObject:GatherProperties()
     return {
         { name = "NodeType", type = DatumType.Integer },
+        { name = "RuneArt", type = DatumType.String },
     }
 end
 
@@ -18,14 +42,34 @@ function NoteObject:Start()
     self.PlayerInProx = false
     self.collecting = false
 
+    if self.RuneArt == nil or self.RuneArt == "" then
+        self.RuneArt = DeriveRuneArt(self:GetName())
+    end
+
     if self.subscribed then
         SignalBus.Unsubscribe("ShakeDetected", self)
     end
     SignalBus.Subscribe("ShakeDetected", self, NoteObject.OnShakeDetected)
     self.subscribed = true
+
+    if self.subscribedReveal then
+        SignalBus.Unsubscribe("RuneRevealed", self)
+    end
+    SignalBus.Subscribe("RuneRevealed", self, NoteObject.OnRuneRevealed)
+    self.subscribedReveal = true
+end
+
+function NoteObject:OnRuneRevealed(noteName, runeArt)
+    if noteName == self:GetName() and runeArt and runeArt ~= "" then
+        self.RuneArt = runeArt
+    end
 end
 
 function NoteObject:OnShakeDetected(intensity)
+    if not self:IsActive(true) or not self:IsVisible(true) then
+        return
+    end
+
     if not self.PlayerInProx or self.collecting then
         return
     end
@@ -50,7 +94,7 @@ function NoteObject:OnShakeDetected(intensity)
         self:SetWorldPosition(lerped)
         if (finished) then
             self.tweenID = nil
-            SignalBus.Emit("NoteCollected", self.NodeType)
+            SignalBus.Emit("NoteCollected", self.NodeType, self.RuneArt)
             self:DestroyDeferred()
         end
     end)
@@ -77,6 +121,11 @@ function NoteObject:Stop()
     if self.subscribed then
         SignalBus.Unsubscribe("ShakeDetected", self)
         self.subscribed = false
+    end
+
+    if self.subscribedReveal then
+        SignalBus.Unsubscribe("RuneRevealed", self)
+        self.subscribedReveal = false
     end
 
     self.PlayerInProx = false

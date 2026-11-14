@@ -54,6 +54,7 @@ function BottomScreenUI:Create()
 
     self.stones = {}
     self.slots = {}
+    self.runeTextures = {}
     self.dragStone = nil
     self.placedCount = 0
 
@@ -286,6 +287,7 @@ function BottomScreenUI:Start()
 
     self.dragStone = nil
     self.placedCount = 0
+    self.runeTextures = {}
     self.gaugeHigh = false
     self.lastGaugeWidth = -1.0
     self.motionFlashTimer = 0.0
@@ -408,7 +410,7 @@ function BottomScreenUI:OnShakeDetected(intensity)
     self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
 end
 
-function BottomScreenUI:OnNoteCollected(nodeType)
+function BottomScreenUI:OnNoteCollected(nodeType, runeArt)
     if not self.ready then
         return
     end
@@ -416,7 +418,34 @@ function BottomScreenUI:OnNoteCollected(nodeType)
     self.motionFlashTimer = 0.35
     self.motionLabel:SetText("COLLECTED")
     self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
-    self:ShowNextStone()
+    self:ShowNextStone(self:GetRuneTexture(runeArt))
+end
+
+function BottomScreenUI:GetRuneTexture(runeArt)
+    if not runeArt or runeArt == "" then
+        return nil
+    end
+
+    local cached = self.runeTextures[runeArt]
+    if cached == nil then
+        local asset = LoadAsset(runeArt)
+        if asset and asset.GetTypeName and asset:GetTypeName() == "Texture" then
+            cached = asset
+        else
+            cached = false
+            if asset then
+                Log.Warning("BottomScreenUI: rune art is not a Texture: " .. runeArt)
+            else
+                Log.Warning("BottomScreenUI: missing rune art: " .. runeArt)
+            end
+        end
+        self.runeTextures[runeArt] = cached
+    end
+
+    if cached then
+        return cached
+    end
+    return nil
 end
 
 function BottomScreenUI:GetStoneLandingY(stone)
@@ -429,7 +458,7 @@ function BottomScreenUI:GetStoneLandingY(stone)
     return targetY
 end
 
-function BottomScreenUI:ShowNextStone()
+function BottomScreenUI:ShowNextStone(texture)
     for i = 1, #self.stones do
         local stone = self.stones[i]
         if not stone.placed and not stone.available then
@@ -452,7 +481,13 @@ function BottomScreenUI:ShowNextStone()
             stone.renderY = stone.y - startHalf
             stone.node:SetDimensions(startSize, startSize)
             stone.node:SetPosition(stone.renderX, stone.renderY)
-            stone.node:SetColor(COLOR_STONE)
+            if texture then
+                stone.node:SetTexture(texture)
+                stone.node:SetColor(Vec(1, 1, 1, 1))
+            else
+                stone.node:SetTexture(nil)
+                stone.node:SetColor(COLOR_STONE)
+            end
             stone.node:SetVisible(true)
             self.status:SetText(STATUS_DRAG)
             Log.Debug("BottomScreenUI: stone revealed")
@@ -472,10 +507,13 @@ function BottomScreenUI:StartDrag(stone, x, y)
     stone.available = false
     stone.vx = 0.0
     stone.vy = 0.0
+
+    local texture = stone.node:GetTexture()
     stone.node:SetVisible(false)
 
     self.dragGhost:SetDimensions(STONE_SIZE, STONE_SIZE)
-    self.dragGhost:SetColor(COLOR_STONE)
+    self.dragGhost:SetTexture(texture)
+    self.dragGhost:SetColor(texture and Vec(1, 1, 1, 1) or COLOR_STONE)
     self.dragGhost:SetPosition(x - self.canvasX - STONE_SIZE * 0.5, y - self.canvasY - STONE_SIZE * 0.5)
     self.dragGhost:SetVisible(true)
     self.status:SetText(STATUS_DRAG)
@@ -843,6 +881,7 @@ function BottomScreenUI:Stop()
     self.motion = nil
     self.stones = {}
     self.slots = {}
+    self.runeTextures = {}
     self.dragStone = nil
     self.ready = false
 end

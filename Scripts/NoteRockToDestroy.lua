@@ -1,5 +1,26 @@
 NoteRockToDestroy = {}
 
+local function DeriveRuneArt(nodeName)
+    if nodeName == nil then
+        return ""
+    end
+
+    local suffix = nil
+    if nodeName:sub(1, 4) == "Rock" then
+        suffix = nodeName:sub(5)
+    elseif nodeName:sub(1, 3) == "SM_" then
+        local candidate = nodeName:sub(4)
+        if candidate:sub(1, 7) == "Tile - " then
+            suffix = candidate:sub(8)
+        end
+    end
+
+    if suffix and (suffix:match("^Dur[1-6]$") or suffix:match("^Mol[1-4]$")) then
+        return "Tile - " .. suffix
+    end
+    return ""
+end
+
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
     self.PlayerInProx = false
@@ -21,8 +42,22 @@ function NoteRockToDestroy:Tick(deltaTime)
                 return
             end
 
+            if self.NoteNode:IsDestroyed() or self.NoteNode:IsPendingDestroy() then
+                Log.Warning("NoteRockToDestroy: NoteNode is no longer valid; removing rock")
+                self:DestroyDeferred()
+                return
+            end
+
             local world = self:GetWorld()
             if not world then
+                return
+            end
+
+            self.hitsRemaining = self.hitsRemaining - 1
+
+            if self.hitsRemaining > 0 then
+                self:PlayHitFeedback()
+                SignalBus.Emit("RuneMined", self.hitsRemaining)
                 return
             end
 
@@ -62,4 +97,13 @@ function NoteRockToDestroy:EndOverlap(me, other)
     if (other:HasTag("Controller")) then
         self.PlayerInProx = false
     end
+end
+
+function NoteRockToDestroy:Stop()
+    if self.punchTween then
+        Tween.Cancel(self.punchTween)
+        self.punchTween = nil
+    end
+
+    self.PlayerInProx = false
 end

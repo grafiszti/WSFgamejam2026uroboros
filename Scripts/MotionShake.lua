@@ -76,6 +76,10 @@ function MotionShake:Start()
     self.intensity = 0.0
     self.shakeCount = 0
     self.calibrated = false
+
+    if self.enableButtonFallback then
+        Log.Debug("MotionShake: debug shake on Gamepad.Y / Gamepad.Select / G")
+    end
 end
 
 function MotionShake:GetIntensity()
@@ -230,8 +234,10 @@ function MotionShake:Tick(deltaTime)
     end
 
     local debugPressed = false
-    if self.enableButtonFallback and Engine.IsEditor() then
-        debugPressed = Input.IsGamepadPressed(Gamepad.Y) or Input.IsKeyPressed(Key.G)
+    if self.enableButtonFallback then
+        debugPressed = Input.IsGamepadPressed(Gamepad.Y) or
+            Input.IsGamepadPressed(Gamepad.Select) or
+            Input.IsKeyPressed(Key.G)
     end
 
     local fire = false
