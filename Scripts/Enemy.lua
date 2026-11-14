@@ -183,10 +183,8 @@ function Enemy:TryHitPlayer()
     end
 
     self.hitCooldown = self.hitCooldownDuration
-    self.bounceTimer = self.bounceDuration
     Log.Debug("Enemy: hit player")
     SignalBus.Emit("PlayerStunned", self.stunDuration)
-    self:Reverse()
 end
 
 function Enemy:Reverse()

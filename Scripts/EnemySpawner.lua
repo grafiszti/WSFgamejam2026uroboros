@@ -52,7 +52,7 @@ function EnemySpawner:Start()
     end
 
     local step = 6.2831853 / self.EnemyCount
-    for i = 1, self.EnemyCount do
+    for i = 1, self.EnemyCount, 1 do
         local angle = (i - 1) * step
         local direction = forward * math.cos(angle) + right * math.sin(angle)
         local spawnPos = basePos + direction * self.SpawnForward + up * self.SpawnHeight
