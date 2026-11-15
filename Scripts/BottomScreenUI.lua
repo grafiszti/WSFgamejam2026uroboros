@@ -1,27 +1,44 @@
 BottomScreenUI = {}
 
-local COLOR_PANEL = Vec(0.10, 0.22, 0.26, 1.0)
-local COLOR_PANEL_ACTIVE = Vec(0.18, 0.72, 0.58, 1.0)
-local COLOR_TEXT = Vec(0.92, 0.96, 0.95, 1.0)
-local COLOR_TEXT_DIM = Vec(0.55, 0.68, 0.66, 1.0)
-local COLOR_PANEL_TEXT = Vec(0.04, 0.08, 0.08, 1.0)
 local COLOR_STONE = Vec(0.56, 0.52, 0.46, 1.0)
-local COLOR_SLOT = Vec(0.08, 0.12, 0.14, 1.0)
-local COLOR_SLOT_ACTIVE = Vec(0.25, 0.72, 0.58, 1.0)
-local COLOR_GAUGE_LOW = Vec(0.25, 0.55, 0.55, 1.0)
-local COLOR_GAUGE_HIGH = Vec(0.95, 0.78, 0.25, 1.0)
+local COLOR_TILE_PENDING = Vec(0.55, 0.55, 0.55, 1.0)
+local COLOR_TILE_FILLED = Vec(1.0, 1.0, 1.0, 1.0)
+local PENDING_OPACITY = 0.45
 
-local STATUS_COLLECT = "SHAKE NEAR A RUNE"
-local STATUS_DRAG = "DRAG A STONE TO THE BOWL"
-local STATUS_FULL = "BOWL FULL"
-local STATUS_TRAY_FULL = "TRAY FULL"
+local RUNE_ARTS =
+{
+    "Tile - Mol1",
+    "Tile - Mol2",
+    "Tile - Mol3",
+    "Tile - Mol4",
+    "Tile - Dur1",
+    "Tile - Dur2",
+    "Tile - Dur3",
+    "Tile - Dur4",
+    "Tile - Dur5",
+    "Tile - Dur6",
+}
 
-local STONE_COUNT = 5
+local RUNE_SFX =
+{
+    ["Tile - Mol1"] = "C-Mol1-SFX",
+    ["Tile - Mol2"] = "D-Mol2-SFX",
+    ["Tile - Mol3"] = "F-Mol3-SFX",
+    ["Tile - Mol4"] = "G-Mol4-SFX",
+    ["Tile - Dur1"] = "C-Dur1-SFX",
+    ["Tile - Dur2"] = "D-Dur2-SFX",
+    ["Tile - Dur3"] = "E-Dur3-SFX",
+    ["Tile - Dur4"] = "F-Dur4-SFX",
+    ["Tile - Dur5"] = "G-Dur5-SFX",
+    ["Tile - Dur6"] = "A-Dur6-SFX",
+}
+
+local STONE_COUNT = 7
+local SONG_SLOT_COUNT = 7
 local STONE_SIZE = 44.0
 local STONE_RADIUS = STONE_SIZE * 0.5
-local PLACED_STONE_SIZE = 30.0
 local DRAWER_PADDING = 4.0
-local SLOT_COUNT = 5
+local SLOT_PADDING = 2.0
 local STONE_FALL_DURATION = 0.55
 local STONE_FALL_START_SCALE = 2.6
 
@@ -31,8 +48,21 @@ local function ResolveCanvas(script)
         return canvas
     end
 
-    if script:FindChild("StatusText") then
+    if script:FindChild("Drawer") then
         return script
+    end
+
+    return nil
+end
+
+local function LoadTextureAsset(name)
+    if not name or name == "" then
+        return nil
+    end
+
+    local asset = LoadAsset(name)
+    if asset and asset.GetTypeName and asset:GetTypeName() == "Texture" then
+        return asset
     end
 
     return nil
@@ -42,21 +72,25 @@ function BottomScreenUI:Create()
     self.pointerIndex = 1
 
     self.canvas = nil
-    self.status = nil
-    self.panel = nil
-    self.panelLabel = nil
-    self.counter = nil
     self.marker = nil
-    self.motionBarFill = nil
-    self.motionLabel = nil
     self.dragGhost = nil
     self.motion = nil
 
     self.stones = {}
-    self.slots = {}
+    self.songSlots = {}
     self.runeTextures = {}
+    self.song = {}
+    self.songSfx = {}
     self.dragStone = nil
-    self.placedCount = 0
+
+    self.songLength = 7
+    self.maxRuneRepeats = 2
+    self.noteInterval = 0.38
+    self.songFilled = 0
+    self.playback = nil
+    self.gameComplete = false
+    self.pausedByGame = false
+    self.trayFullWarned = false
 
     self.drawer = nil
     self.drawerX = 8.0
@@ -82,38 +116,25 @@ function BottomScreenUI:Create()
     self.stoneFallStartScale = 2.6
 
     self.ready = false
-    self.subscribed = false
     self.subscribedNote = false
 
     self.canvasX = 0.0
     self.canvasY = 0.0
-    self.panelX = 0.0
-    self.panelY = 0.0
-    self.panelWidth = 0.0
-    self.panelHeight = 0.0
-    self.bowlX = 0.0
-    self.bowlY = 0.0
 
-    self.lastTouchX = -1
-    self.lastTouchY = -1
     self.lastMarkerX = -1
     self.lastMarkerY = -1
     self.markerVisible = false
-    self.statusTimer = 0.0
     self.markerHalfWidth = 10.0
     self.markerHalfHeight = 10.0
-
-    self.gaugeWidth = 96.0
-    self.lastGaugeWidth = -1.0
-    self.gaugeHigh = false
-    self.motionFlashTimer = 0.0
-    self.motionLabelDefault = "SHAKE UP"
 end
 
 function BottomScreenUI:GatherProperties()
     return
     {
         { name = "pointerIndex", type = DatumType.Integer },
+        { name = "songLength", type = DatumType.Integer },
+        { name = "maxRuneRepeats", type = DatumType.Integer },
+        { name = "noteInterval", type = DatumType.Float },
         { name = "drawerEnabled", type = DatumType.Bool },
         { name = "drawerTiltScale", type = DatumType.Float },
         { name = "drawerImpulseScale", type = DatumType.Float },
@@ -130,6 +151,9 @@ end
 
 function BottomScreenUI:Start()
     self.pointerIndex = math.max(1, math.min(4, math.floor(self.pointerIndex or 1)))
+    self.songLength = math.max(1, math.floor(self.songLength or 7))
+    self.maxRuneRepeats = math.max(1, math.floor(self.maxRuneRepeats or 2))
+    self.noteInterval = math.max(0.05, self.noteInterval or 0.38)
     self.drawerFriction = math.max(0.0, self.drawerFriction or 0.0)
     self.stoneFallDuration = math.max(0.05, self.stoneFallDuration or 0.55)
     self.stoneFallStartScale = math.max(1.0, self.stoneFallStartScale or 2.6)
@@ -142,18 +166,12 @@ function BottomScreenUI:Start()
     end
 
     self.canvas = canvas
-    self.status = canvas:FindChild("StatusText")
-    self.panel = canvas:FindChild("Panel")
-    self.panelLabel = canvas:FindChild("PanelLabel")
-    self.counter = canvas:FindChild("CounterText")
     self.marker = canvas:FindChild("TouchMarker")
-    self.motionBarFill = canvas:FindChild("MotionBarFill")
-    self.motionLabel = canvas:FindChild("MotionLabel")
     self.dragGhost = canvas:FindChild("DragGhost")
+    self.drawer = canvas:FindChild("Drawer")
 
-    if not (self.status and self.panel and self.panelLabel and self.counter and
-        self.marker and self.motionBarFill and self.motionLabel and self.dragGhost) then
-        Log.Warning("BottomScreenUI: missing authored widgets")
+    if not (self.marker and self.dragGhost and self.drawer) then
+        Log.Warning("BottomScreenUI: missing Drawer, DragGhost, or TouchMarker")
         self.ready = false
         return
     end
@@ -172,8 +190,6 @@ function BottomScreenUI:Start()
         Log.Warning("BottomScreenUI: missing MotionSensor node")
     elseif not (self.motion.GetIntensity and self.motion.GetGravityDeltaX) then
         Log.Warning("BottomScreenUI: MotionSensor script API missing")
-    else
-        Log.Debug("BottomScreenUI: motion API found")
     end
 
     local markerSize = self.marker:GetDimensions()
@@ -181,33 +197,15 @@ function BottomScreenUI:Start()
     self.markerHalfHeight = markerSize.y * 0.5
 
     local canvasPosition = canvas:GetPosition()
-    local panelPosition = self.panel:GetPosition()
-    local panelSize = self.panel:GetDimensions()
     self.canvasX = canvasPosition.x
     self.canvasY = canvasPosition.y
-    self.panelX = panelPosition.x
-    self.panelY = panelPosition.y
-    self.panelWidth = panelSize.x
-    self.panelHeight = panelSize.y
-    self.bowlX = self.canvasX + self.panelX
-    self.bowlY = self.canvasY + self.panelY
 
-    local gaugeSize = canvas:FindChild("MotionBarBack")
-    if gaugeSize then
-        self.gaugeWidth = gaugeSize:GetDimensions().x
-    end
-
-    self.drawer = canvas:FindChild("Drawer")
-    if self.drawer then
-        local drawerPosition = self.drawer:GetPosition()
-        local drawerSize = self.drawer:GetDimensions()
-        self.drawerX = drawerPosition.x
-        self.drawerY = drawerPosition.y
-        self.drawerWidth = drawerSize.x
-        self.drawerHeight = drawerSize.y
-    else
-        Log.Warning("BottomScreenUI: missing Drawer widget; using fallback bounds")
-    end
+    local drawerPosition = self.drawer:GetPosition()
+    local drawerSize = self.drawer:GetDimensions()
+    self.drawerX = drawerPosition.x
+    self.drawerY = drawerPosition.y
+    self.drawerWidth = drawerSize.x
+    self.drawerHeight = drawerSize.y
 
     self.drawerMinX = self.drawerX + DRAWER_PADDING + STONE_RADIUS
     self.drawerMaxX = self.drawerX + self.drawerWidth - DRAWER_PADDING - STONE_RADIUS
@@ -221,7 +219,8 @@ function BottomScreenUI:Start()
             local stonePosition = stoneNode:GetPosition()
             stoneNode:SetDimensions(STONE_SIZE, STONE_SIZE)
             stoneNode:SetVisible(false)
-            self.stones[#self.stones + 1] = {
+            self.stones[#self.stones + 1] =
+            {
                 node = stoneNode,
                 homeX = stonePosition.x,
                 homeY = stonePosition.y,
@@ -240,69 +239,86 @@ function BottomScreenUI:Start()
                 spawnY = 0.0,
                 targetX = 0.0,
                 targetY = 0.0,
+                runeArt = "",
             }
         end
     end
     if #self.stones == 0 then
-        Log.Warning("BottomScreenUI: no Stone_1..Stone_5 widgets found")
+        Log.Warning("BottomScreenUI: no Stone_1..Stone_7 widgets found")
     end
 
-    self.slots = {}
-    for i = 1, SLOT_COUNT do
-        local slotNode = canvas:FindChild("Slot_" .. tostring(i))
+    self.songSlots = {}
+    for i = 1, SONG_SLOT_COUNT do
+        local slotNode = canvas:FindChild("SongSlot_" .. tostring(i))
         if slotNode then
             local slotPosition = slotNode:GetPosition()
             local slotSize = slotNode:GetDimensions()
-            slotNode:SetColor(COLOR_SLOT)
             slotNode:SetVisible(true)
-            self.slots[#self.slots + 1] = {
+            self.songSlots[#self.songSlots + 1] =
+            {
                 node = slotNode,
                 x = slotPosition.x,
                 y = slotPosition.y,
                 width = slotSize.x,
                 height = slotSize.y,
-                occupied = false,
-                stone = nil,
+                runeArt = "",
+                filled = false,
             }
         end
     end
-    if #self.slots == 0 then
-        Log.Warning("BottomScreenUI: no Slot_1..Slot_5 widgets found")
+    if #self.songSlots == 0 then
+        Log.Warning("BottomScreenUI: no SongSlot_1..SongSlot_7 widgets found")
+        self.ready = false
+        return
+    end
+
+    self.songLength = math.min(self.songLength, #self.songSlots, #RUNE_ARTS)
+    self.maxRuneRepeats = math.min(self.maxRuneRepeats, self.songLength)
+
+    self.runeTextures = {}
+    for i = 1, #RUNE_ARTS do
+        local art = RUNE_ARTS[i]
+        local texture = LoadTextureAsset(art)
+        if texture then
+            self.runeTextures[art] = texture
+        else
+            self.runeTextures[art] = false
+            Log.Warning("BottomScreenUI: missing rune texture: " .. art)
+        end
+    end
+
+    self:GenerateSong()
+    self:ApplySongToSlots()
+
+    self.songSfx = {}
+    for i = 1, #self.song do
+        local sfxName = RUNE_SFX[self.song[i]]
+        if sfxName then
+            local sound = LoadAsset(sfxName)
+            if sound then
+                self.songSfx[i] = sound
+            else
+                Log.Warning("BottomScreenUI: missing rune SFX: " .. sfxName)
+            end
+        end
     end
 
     self.dragGhost:SetDimensions(STONE_SIZE, STONE_SIZE)
     self.dragGhost:SetColor(COLOR_STONE)
+    self.dragGhost:SetTexture(nil)
     self.dragGhost:SetVisible(false)
 
-    self.motionBarFill:SetWidth(0.0)
-    self.motionBarFill:SetColor(COLOR_GAUGE_LOW)
-    self.motionLabelDefault = "SHAKE UP"
-    self.motionLabel:SetText(self.motionLabelDefault)
-    self.motionLabel:SetColor(COLOR_TEXT_DIM)
-    self.panel:SetColor(COLOR_PANEL)
-    self.panelLabel:SetColor(COLOR_TEXT)
-    self.status:SetText(STATUS_COLLECT)
-    self.counter:SetText("STONES 0")
     self.marker:SetVisible(false)
 
     self.dragStone = nil
-    self.placedCount = 0
-    self.runeTextures = {}
-    self.gaugeHigh = false
-    self.lastGaugeWidth = -1.0
-    self.motionFlashTimer = 0.0
-    self.statusTimer = 0.0
-    self.lastTouchX = -1
-    self.lastTouchY = -1
+    self.songFilled = 0
+    self.playback = nil
+    self.gameComplete = false
+    self.pausedByGame = false
+    self.trayFullWarned = false
     self.lastMarkerX = -1
     self.lastMarkerY = -1
     self.markerVisible = false
-
-    if self.subscribed then
-        SignalBus.Unsubscribe("ShakeDetected", self)
-    end
-    SignalBus.Subscribe("ShakeDetected", self, BottomScreenUI.OnShakeDetected)
-    self.subscribed = true
 
     if self.subscribedNote then
         SignalBus.Unsubscribe("NoteCollected", self)
@@ -310,23 +326,65 @@ function BottomScreenUI:Start()
     SignalBus.Subscribe("NoteCollected", self, BottomScreenUI.OnNoteCollected)
     self.subscribedNote = true
 
+    Engine.SetPaused(false)
     self.ready = true
-    Log.Debug("BottomScreenUI: ready")
+    Log.Debug("BottomScreenUI: ready with " .. tostring(#self.song) .. " song tiles")
 end
 
-function BottomScreenUI:IsInsidePanel(x, y)
-    return x >= self.bowlX and x <= self.bowlX + self.panelWidth and
-        y >= self.bowlY and y <= self.bowlY + self.panelHeight
+function BottomScreenUI:GenerateSong()
+    self.song = {}
+    self.songFilled = 0
+
+    if math.randomseed then
+        local seed = math.floor((Engine.GetTime() or 0.0) * 1000000.0)
+        math.randomseed(seed)
+    end
+
+    local counts = {}
+    for i = 1, self.songLength do
+        local candidates = {}
+        for j = 1, #RUNE_ARTS do
+            if (counts[j] or 0) < self.maxRuneRepeats then
+                candidates[#candidates + 1] = j
+            end
+        end
+
+        if #candidates == 0 then
+            break
+        end
+
+        local pick = candidates[math.random(1, #candidates)]
+        counts[pick] = (counts[pick] or 0) + 1
+        self.song[#self.song + 1] = RUNE_ARTS[pick]
+    end
+end
+
+function BottomScreenUI:ApplySongToSlots()
+    for i = 1, #self.songSlots do
+        local slot = self.songSlots[i]
+        local art = self.song[i]
+        if art then
+            slot.runeArt = art
+            slot.filled = false
+            slot.node:SetTexture(self:GetRuneTexture(art))
+            slot.node:SetColor(COLOR_TILE_PENDING)
+            slot.node:SetOpacityFloat(PENDING_OPACITY)
+            slot.node:SetVisible(true)
+        else
+            slot.runeArt = ""
+            slot.filled = true
+            slot.node:SetVisible(false)
+        end
+    end
 end
 
 function BottomScreenUI:FindSlotAt(x, y)
-    local padding = 4.0
-    for i = 1, #self.slots do
-        local slot = self.slots[i]
-        local left = self.canvasX + slot.x - padding
-        local top = self.canvasY + slot.y - padding
-        if x >= left and x <= left + slot.width + padding * 2.0 and
-            y >= top and y <= top + slot.height + padding * 2.0 then
+    for i = 1, #self.songSlots do
+        local slot = self.songSlots[i]
+        local left = self.canvasX + slot.x - SLOT_PADDING
+        local top = self.canvasY + slot.y - SLOT_PADDING
+        if x >= left and x <= left + slot.width + SLOT_PADDING * 2.0 and
+            y >= top and y <= top + slot.height + SLOT_PADDING * 2.0 then
             return slot
         end
     end
@@ -380,7 +438,7 @@ function BottomScreenUI:ApplyStoneNodePosition(stone)
     end
 end
 
-function BottomScreenUI:UpdateMarker(x, y, forceStatus)
+function BottomScreenUI:UpdateMarker(x, y)
     local markerX = x - self.canvasX - self.markerHalfWidth
     local markerY = y - self.canvasY - self.markerHalfHeight
     if markerX ~= self.lastMarkerX or markerY ~= self.lastMarkerY then
@@ -392,33 +450,14 @@ function BottomScreenUI:UpdateMarker(x, y, forceStatus)
         self.markerVisible = true
         self.marker:SetVisible(true)
     end
-
-    if forceStatus then
-        self.lastTouchX = math.floor(x)
-        self.lastTouchY = math.floor(y)
-        self.statusTimer = 0.1
-    end
-end
-
-function BottomScreenUI:OnShakeDetected(intensity)
-    if not self.ready then
-        return
-    end
-
-    self.motionFlashTimer = 0.35
-    self.motionLabel:SetText("DETECTED")
-    self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
 end
 
 function BottomScreenUI:OnNoteCollected(nodeType, runeArt)
-    if not self.ready then
+    if not self.ready or self.gameComplete then
         return
     end
 
-    self.motionFlashTimer = 0.35
-    self.motionLabel:SetText("COLLECTED")
-    self.motionLabel:SetColor(COLOR_GAUGE_HIGH)
-    self:ShowNextStone(self:GetRuneTexture(runeArt))
+    self:ShowNextStone(runeArt)
 end
 
 function BottomScreenUI:GetRuneTexture(runeArt)
@@ -427,24 +466,10 @@ function BottomScreenUI:GetRuneTexture(runeArt)
     end
 
     local cached = self.runeTextures[runeArt]
-    if cached == nil then
-        local asset = LoadAsset(runeArt)
-        if asset and asset.GetTypeName and asset:GetTypeName() == "Texture" then
-            cached = asset
-        else
-            cached = false
-            if asset then
-                Log.Warning("BottomScreenUI: rune art is not a Texture: " .. runeArt)
-            else
-                Log.Warning("BottomScreenUI: missing rune art: " .. runeArt)
-            end
-        end
-        self.runeTextures[runeArt] = cached
-    end
-
     if cached then
         return cached
     end
+
     return nil
 end
 
@@ -458,10 +483,12 @@ function BottomScreenUI:GetStoneLandingY(stone)
     return targetY
 end
 
-function BottomScreenUI:ShowNextStone(texture)
+function BottomScreenUI:ShowNextStone(runeArt)
+    local texture = self:GetRuneTexture(runeArt)
+
     for i = 1, #self.stones do
         local stone = self.stones[i]
-        if not stone.placed and not stone.available then
+        if not stone.placed and not stone.available and stone ~= self.dragStone then
             local startSize = STONE_SIZE * self.stoneFallStartScale
             local startHalf = startSize * 0.5
 
@@ -479,26 +506,25 @@ function BottomScreenUI:ShowNextStone(texture)
             stone.vy = 0.0
             stone.renderX = stone.x - startHalf
             stone.renderY = stone.y - startHalf
+            stone.runeArt = runeArt or ""
             stone.node:SetDimensions(startSize, startSize)
             stone.node:SetPosition(stone.renderX, stone.renderY)
             if texture then
                 stone.node:SetTexture(texture)
-                stone.node:SetColor(Vec(1, 1, 1, 1))
+                stone.node:SetColor(Vec(1.0, 1.0, 1.0, 1.0))
             else
                 stone.node:SetTexture(nil)
                 stone.node:SetColor(COLOR_STONE)
             end
             stone.node:SetVisible(true)
-            self.status:SetText(STATUS_DRAG)
             Log.Debug("BottomScreenUI: stone revealed")
             return
         end
     end
 
-    if self.placedCount >= #self.stones then
-        self.status:SetText(STATUS_FULL)
-    else
-        self.status:SetText(STATUS_TRAY_FULL)
+    if not self.trayFullWarned then
+        self.trayFullWarned = true
+        Log.Debug("BottomScreenUI: stone tray is full")
     end
 end
 
@@ -513,37 +539,13 @@ function BottomScreenUI:StartDrag(stone, x, y)
 
     self.dragGhost:SetDimensions(STONE_SIZE, STONE_SIZE)
     self.dragGhost:SetTexture(texture)
-    self.dragGhost:SetColor(texture and Vec(1, 1, 1, 1) or COLOR_STONE)
+    self.dragGhost:SetColor(texture and Vec(1.0, 1.0, 1.0, 1.0) or COLOR_STONE)
     self.dragGhost:SetPosition(x - self.canvasX - STONE_SIZE * 0.5, y - self.canvasY - STONE_SIZE * 0.5)
     self.dragGhost:SetVisible(true)
-    self.status:SetText(STATUS_DRAG)
-    self:UpdateBowlHighlight(x, y)
-end
-
-function BottomScreenUI:UpdateSlotHighlight(x, y)
-    local hovered = self:FindSlotAt(x, y)
-    for i = 1, #self.slots do
-        local slot = self.slots[i]
-        slot.node:SetColor(slot == hovered and COLOR_SLOT_ACTIVE or COLOR_SLOT)
-    end
-end
-
-function BottomScreenUI:UpdateBowlHighlight(x, y)
-    local inside = self:IsInsidePanel(x, y)
-    self.panel:SetColor(inside and COLOR_PANEL_ACTIVE or COLOR_PANEL)
-    self.panelLabel:SetColor(inside and COLOR_PANEL_TEXT or COLOR_TEXT)
-    self:UpdateSlotHighlight(x, y)
-end
-
-function BottomScreenUI:ResetSlotHighlight()
-    for i = 1, #self.slots do
-        self.slots[i].node:SetColor(COLOR_SLOT)
-    end
 end
 
 function BottomScreenUI:UpdateDrag(x, y)
     self.dragGhost:SetPosition(x - self.canvasX - STONE_SIZE * 0.5, y - self.canvasY - STONE_SIZE * 0.5)
-    self:UpdateBowlHighlight(x, y)
 end
 
 function BottomScreenUI:DropStone(x, y)
@@ -554,95 +556,83 @@ function BottomScreenUI:DropStone(x, y)
 
     self.dragStone = nil
     self.dragGhost:SetVisible(false)
-    self.panel:SetColor(COLOR_PANEL)
-    self.panelLabel:SetColor(COLOR_TEXT)
-    self:ResetSlotHighlight()
 
-    local slot = self:FindSlotAt(x, y)
-    if slot then
-        local existing = slot.stone
-        if existing then
-            existing.placed = false
-            existing.available = true
-            existing.vx = 0.0
-            existing.vy = 0.0
-            existing.x = existing.homeX + STONE_RADIUS
-            existing.y = existing.homeY + STONE_RADIUS
-            self:ClampStoneToDrawer(existing, false)
-            existing.renderX = existing.x - STONE_RADIUS
-            existing.renderY = existing.y - STONE_RADIUS
-            existing.node:SetDimensions(STONE_SIZE, STONE_SIZE)
-            existing.node:SetPosition(existing.renderX, existing.renderY)
-            existing.node:SetVisible(true)
-        else
-            self.placedCount = self.placedCount + 1
-        end
+    local slot = nil
+    if x and y and x >= 0.0 and y >= 0.0 then
+        slot = self:FindSlotAt(x, y)
+    end
 
+    if slot and not slot.filled and slot.runeArt ~= "" and slot.runeArt == stone.runeArt then
         stone.placed = true
         stone.available = false
-        stone.slot = slot
-        slot.stone = stone
-        slot.occupied = true
-
-        local centerX = slot.x + slot.width * 0.5
-        local centerY = slot.y + slot.height * 0.5
-        stone.x = centerX
-        stone.y = centerY
-        stone.renderX = centerX - PLACED_STONE_SIZE * 0.5
-        stone.renderY = centerY - PLACED_STONE_SIZE * 0.5
-        stone.node:SetDimensions(PLACED_STONE_SIZE, PLACED_STONE_SIZE)
-        stone.node:SetPosition(stone.renderX, stone.renderY)
-        stone.node:SetVisible(true)
-
-        self.counter:SetText("STONES " .. tostring(self.placedCount))
-        Log.Debug("BottomScreenUI: stone placed")
-        if self.placedCount >= #self.slots then
-            self.status:SetText(STATUS_FULL)
-        else
-            self.status:SetText(STATUS_DRAG)
-        end
-    else
-        stone.available = true
+        stone.falling = false
         stone.vx = 0.0
         stone.vy = 0.0
-        if x and y then
-            stone.x = x - self.canvasX
-            stone.y = y - self.canvasY
+        stone.runeArt = ""
+        stone.node:SetVisible(false)
+
+        slot.filled = true
+        slot.node:SetColor(COLOR_TILE_FILLED)
+        slot.node:SetOpacityFloat(1.0)
+
+        self.songFilled = self.songFilled + 1
+        self.trayFullWarned = false
+        Log.Debug("BottomScreenUI: song tile filled")
+
+        if self.songFilled >= #self.song then
+            self:BeginCompletion()
         end
-        self:ClampStoneToDrawer(stone, false)
-        stone.renderX = stone.x - STONE_RADIUS
-        stone.renderY = stone.y - STONE_RADIUS
-        stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
-        stone.node:SetPosition(stone.renderX, stone.renderY)
-        stone.node:SetVisible(true)
-        self.status:SetText(STATUS_DRAG)
+        return
     end
+
+    stone.available = true
+    stone.vx = 0.0
+    stone.vy = 0.0
+    if x and y and x >= 0.0 and y >= 0.0 then
+        stone.x = x - self.canvasX
+        stone.y = y - self.canvasY
+    end
+    self:ClampStoneToDrawer(stone, false)
+    stone.renderX = stone.x - STONE_RADIUS
+    stone.renderY = stone.y - STONE_RADIUS
+    stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
+    stone.node:SetPosition(stone.renderX, stone.renderY)
+    stone.node:SetVisible(true)
 end
 
-function BottomScreenUI:UpdateMotionIndicator(dt)
-    local intensity = 0.0
-    if self.motion and self.motion.GetIntensity then
-        intensity = self.motion:GetIntensity() or 0.0
+function BottomScreenUI:BeginCompletion()
+    if self.gameComplete then
+        return
     end
 
-    local width = math.max(0.0, math.min(1.0, intensity)) * self.gaugeWidth
-    if math.abs(width - self.lastGaugeWidth) >= 1.0 then
-        self.lastGaugeWidth = width
-        self.motionBarFill:SetWidth(width)
+    self.gameComplete = true
+    self.playback = { index = 1, timer = 0.0 }
+    SignalBus.Emit("GameCompleted")
+    Log.Debug("BottomScreenUI: song complete")
+end
+
+function BottomScreenUI:UpdatePlayback(dt)
+    if not self.playback or dt <= 0.0 then
+        return
     end
 
-    local high = intensity >= 0.7
-    if high ~= self.gaugeHigh then
-        self.gaugeHigh = high
-        self.motionBarFill:SetColor(high and COLOR_GAUGE_HIGH or COLOR_GAUGE_LOW)
+    local playback = self.playback
+    playback.timer = playback.timer - dt
+    if playback.timer > 0.0 then
+        return
     end
 
-    if self.motionFlashTimer > 0.0 then
-        self.motionFlashTimer = self.motionFlashTimer - dt
-        if self.motionFlashTimer <= 0.0 then
-            self.motionLabel:SetText(self.motionLabelDefault)
-            self.motionLabel:SetColor(COLOR_TEXT_DIM)
+    if playback.index <= #self.song then
+        local sound = self.songSfx[playback.index]
+        if sound then
+            Audio.PlaySound2D(sound, 1.0, 1.0)
         end
+        playback.index = playback.index + 1
+        playback.timer = self.noteInterval
+    else
+        self.playback = nil
+        self.pausedByGame = true
+        Engine.SetPaused(true)
     end
 end
 
@@ -808,80 +798,83 @@ function BottomScreenUI:Tick(deltaTime)
         return
     end
 
-    local realDelta = Engine.GetRealDeltaTime()
     local gameDelta = math.min(Engine.GetGameDeltaTime(), 0.05)
-    self.statusTimer = self.statusTimer - realDelta
-    self:UpdateMotionIndicator(realDelta)
+
     self:UpdateFallingStones(gameDelta)
     self:UpdateDrawerPhysics(gameDelta)
+    self:UpdatePlayback(gameDelta)
 
-    if Input.IsPointerPressed(self.pointerIndex) then
-        local x, y = Input.GetPointerPosition(self.pointerIndex)
-        if x then
-            self:UpdateMarker(x, y, true)
-            if not self.dragStone then
-                local stone = self:FindStoneAt(x, y)
-                if stone then
-                    self:StartDrag(stone, x, y)
+    if not self.gameComplete then
+        if Input.IsPointerPressed(self.pointerIndex) then
+            local x, y = Input.GetPointerPosition(self.pointerIndex)
+            if x then
+                self:UpdateMarker(x, y)
+                if not self.dragStone then
+                    local stone = self:FindStoneAt(x, y)
+                    if stone then
+                        self:StartDrag(stone, x, y)
+                    end
+                end
+            end
+        elseif Input.IsPointerDown(self.pointerIndex) then
+            local x, y = Input.GetPointerPosition(self.pointerIndex)
+            if x then
+                self:UpdateMarker(x, y)
+                if self.dragStone then
+                    self:UpdateDrag(x, y)
                 end
             end
         end
-    elseif Input.IsPointerDown(self.pointerIndex) then
-        local x, y = Input.GetPointerPosition(self.pointerIndex)
-        if x then
-            self:UpdateMarker(x, y, false)
+
+        if Input.IsPointerReleased(self.pointerIndex) then
+            local x, y = Input.GetPointerPosition(self.pointerIndex)
             if self.dragStone then
-                self:UpdateDrag(x, y)
+                if x then
+                    self:DropStone(x, y)
+                else
+                    self:DropStone(-1.0, -1.0)
+                end
             end
-        end
-    end
 
-    if Input.IsPointerReleased(self.pointerIndex) then
-        local x, y = Input.GetPointerPosition(self.pointerIndex)
-        if self.dragStone then
-            if x then
-                self:DropStone(x, y)
-            else
-                self:DropStone(-1.0, -1.0)
+            if self.markerVisible then
+                self.markerVisible = false
+                self.marker:SetVisible(false)
             end
-        end
 
+            self.lastMarkerX = -1
+            self.lastMarkerY = -1
+        end
+    else
         if self.markerVisible then
             self.markerVisible = false
             self.marker:SetVisible(false)
         end
-
-        self.lastTouchX = -1
-        self.lastTouchY = -1
-        self.lastMarkerX = -1
-        self.lastMarkerY = -1
-        self.statusTimer = 0.0
     end
 end
 
 function BottomScreenUI:Stop()
-    if self.subscribed then
-        SignalBus.Unsubscribe("ShakeDetected", self)
-        self.subscribed = false
-    end
     if self.subscribedNote then
         SignalBus.Unsubscribe("NoteCollected", self)
         self.subscribedNote = false
     end
 
+    if self.pausedByGame then
+        Engine.SetPaused(false)
+        self.pausedByGame = false
+    end
+
     self.canvas = nil
-    self.status = nil
-    self.panel = nil
-    self.panelLabel = nil
-    self.counter = nil
     self.marker = nil
-    self.motionBarFill = nil
-    self.motionLabel = nil
     self.dragGhost = nil
     self.motion = nil
+    self.drawer = nil
     self.stones = {}
-    self.slots = {}
+    self.songSlots = {}
     self.runeTextures = {}
+    self.song = {}
+    self.songSfx = {}
     self.dragStone = nil
+    self.playback = nil
+    self.gameComplete = false
     self.ready = false
 end

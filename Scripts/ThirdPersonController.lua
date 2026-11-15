@@ -48,6 +48,7 @@ function ThirdPersonController:Create()
     self.Music = nil
     self.stunTimer = 0.0
     self.subscribedStun = false
+    self.subscribedComplete = false
 end
 
 function ThirdPersonController:GatherProperties()
@@ -104,11 +105,26 @@ function ThirdPersonController:Start()
     end
     SignalBus.Subscribe("PlayerStunned", self, ThirdPersonController.OnPlayerStunned)
     self.subscribedStun = true
+
+    if self.subscribedComplete then
+        SignalBus.Unsubscribe("GameCompleted", self)
+    end
+    SignalBus.Subscribe("GameCompleted", self, ThirdPersonController.OnGameCompleted)
+    self.subscribedComplete = true
 end
 
 function ThirdPersonController:OnPlayerStunned(duration)
     self.stunTimer = math.max(self.stunTimer or 0.0, duration or 2.0)
     Log.Debug("ThirdPersonController: stunned")
+end
+
+function ThirdPersonController:OnGameCompleted()
+    self.enableControl = false
+    self.moveDir = Vec(0, 0, 0)
+    if self.Music then
+        Audio.StopSounds(self.Music)
+    end
+    Log.Debug("ThirdPersonController: game complete")
 end
 
 function ThirdPersonController:Stop()
@@ -120,6 +136,10 @@ function ThirdPersonController:Stop()
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
         self.subscribedStun = false
+    end
+    if self.subscribedComplete then
+        SignalBus.Unsubscribe("GameCompleted", self)
+        self.subscribedComplete = false
     end
     self.stunTimer = 0.0
 end

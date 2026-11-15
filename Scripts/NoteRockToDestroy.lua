@@ -32,8 +32,11 @@ local function DeriveRuneArt(nodeName)
         end
     end
 
-    if suffix and (suffix:match("^Dur[1-6]$") or suffix:match("^Mol[1-4]$")) then
-        return "Tile - " .. suffix
+    if suffix then
+        local base = suffix:match("^(Dur[1-6])") or suffix:match("^(Mol[1-4])")
+        if base then
+            return "Tile - " .. base
+        end
     end
     return ""
 end
@@ -72,6 +75,22 @@ function NoteRockToDestroy:Start()
 
     if self.RuneArt == nil or self.RuneArt == "" then
         self.RuneArt = DeriveRuneArt(self:GetName())
+    end
+
+    if not self.NoteNode then
+        local childCount = self:GetNumChildren()
+        for i = 1, childCount do
+            local child = self:GetChild(i)
+            local childName = child and child:GetName() or ""
+            if childName:sub(1, 10) == "SM_Tile - " then
+                self.NoteNode = child
+                break
+            end
+        end
+    end
+
+    if not self.NoteNode then
+        Log.Warning("NoteRockToDestroy: missing NoteNode on " .. self:GetName())
     end
 
     self.showPos = self:GetPosition()
