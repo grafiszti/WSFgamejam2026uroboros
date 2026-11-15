@@ -24,9 +24,12 @@ function ThirdPersonController:Create()
     self.enableFollowCam = false
     self.enableCameraTrace = true
     self.AnimatedSprite = nil
+    self.meshBaseRotation = nil
 
     -- State
     self.moveDir = Vec(0, 0, 0)
+    self.currentAnimation = nil
+    self.meshFlipped = false
     self.vertMoveChange = false
     self.lookVec = Vec()
     self.meshYaw = 0.0
@@ -72,6 +75,10 @@ function ThirdPersonController:Start()
         self.camera = self.collider:FindChild("Camera", true)
     end
 
+    if self.mesh then
+        self.meshBaseRotation = self.mesh:GetRotation()
+    end
+
     self.stunTimer = 0.0
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
@@ -98,9 +105,49 @@ function ThirdPersonController:Stop()
 end
 
 function ThirdPersonController:Tick(deltaTime)
+    if self.stunTimer <= 0.0 and
+        (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
+        self:OnPlayerStunned(0.8)
+        if self.AnimatedSprite then
+            self.AnimatedSprite:PlayAnimation("Boop")
+            self.currentAnimation = "Boop"
+        end
+    end
+
     self:UpdateInput(deltaTime)
+    self:UpdateAnimation()
     self:NewMove(deltaTime)
     self:UpdateCamera(deltaTime)
+end
+
+function ThirdPersonController:UpdateAnimation()
+    if self.currentAnimation == "Boop" and self.stunTimer > 0.0 then
+        return
+    end
+
+    local animation = "Idle"
+    local flipSide = false
+    local isMoving = self.moveDir:Magnitude() > 0.1
+
+    if isMoving then
+        if math.abs(self.moveDir.x) > math.abs(self.moveDir.z) then
+            animation = "WalkSide"
+            flipSide = self.moveDir.x < 0.0
+        else
+            animation = "WalkFront"
+        end
+    end
+
+    if self.AnimatedSprite and animation ~= self.currentAnimation then
+        self.AnimatedSprite:PlayAnimation(animation)
+        self.currentAnimation = animation
+    end
+
+    if self.mesh and self.meshBaseRotation and flipSide ~= self.meshFlipped then
+        local rotation = self.meshBaseRotation
+        self.mesh:SetRotation(Vec(rotation.x, rotation.y + (flipSide and 0.0 or 180.0), rotation.z))
+        self.meshFlipped = flipSide
+    end
 end
 
 function ThirdPersonController:UpdateInput(deltaTime)
@@ -171,7 +218,7 @@ function ThirdPersonController:NewMove(deltaTime)
     startPos = self.collider:GetWorldPosition() + self.collider:GetUpVector() * 0.2
     self.collider:SetWorldPosition(startPos)
     endPos = startPos + -self.collider:GetUpVector() * 5
-    sweepRes = self.collider:SweepToWorldPosition(endPos, kSolidMask)
+    sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
     if (sweepRes.hitNode and (sweepRes.hitNormal ~= self.lastNormal)) then
         if (self.tweenID) then
             Tween.Cancel(self.tweenID)
