@@ -33,9 +33,9 @@ local RUNE_SFX =
     ["Tile - Dur6"] = "A-Dur6-SFX",
 }
 
-local STONE_COUNT = 7
+local STONE_COUNT = 10
 local SONG_SLOT_COUNT = 7
-local STONE_SIZE = 44.0
+local STONE_SIZE = 30.0
 local STONE_RADIUS = STONE_SIZE * 0.5
 local DRAWER_PADDING = 4.0
 local SLOT_PADDING = 2.0
@@ -86,11 +86,17 @@ function BottomScreenUI:Create()
     self.songLength = 7
     self.maxRuneRepeats = 2
     self.noteInterval = 0.38
+    self.doubleTapTime = 0.35
+    self.doubleTapDragThreshold = 10.0
     self.songFilled = 0
     self.playback = nil
     self.gameComplete = false
     self.pausedByGame = false
     self.trayFullWarned = false
+    self.lastTapStone = nil
+    self.lastTapTime = -1.0
+    self.dragStartX = 0.0
+    self.dragStartY = 0.0
 
     self.drawer = nil
     self.drawerX = 8.0
@@ -135,6 +141,8 @@ function BottomScreenUI:GatherProperties()
         { name = "songLength", type = DatumType.Integer },
         { name = "maxRuneRepeats", type = DatumType.Integer },
         { name = "noteInterval", type = DatumType.Float },
+        { name = "doubleTapTime", type = DatumType.Float },
+        { name = "doubleTapDragThreshold", type = DatumType.Float },
         { name = "drawerEnabled", type = DatumType.Bool },
         { name = "drawerTiltScale", type = DatumType.Float },
         { name = "drawerImpulseScale", type = DatumType.Float },
@@ -154,6 +162,8 @@ function BottomScreenUI:Start()
     self.songLength = math.max(1, math.floor(self.songLength or 7))
     self.maxRuneRepeats = math.max(1, math.floor(self.maxRuneRepeats or 2))
     self.noteInterval = math.max(0.05, self.noteInterval or 0.38)
+    self.doubleTapTime = math.max(0.15, self.doubleTapTime or 0.35)
+    self.doubleTapDragThreshold = math.max(1.0, self.doubleTapDragThreshold or 10.0)
     self.drawerFriction = math.max(0.0, self.drawerFriction or 0.0)
     self.stoneFallDuration = math.max(0.05, self.stoneFallDuration or 0.55)
     self.stoneFallStartScale = math.max(1.0, self.stoneFallStartScale or 2.6)
@@ -244,7 +254,7 @@ function BottomScreenUI:Start()
         end
     end
     if #self.stones == 0 then
-        Log.Warning("BottomScreenUI: no Stone_1..Stone_7 widgets found")
+        Log.Warning("BottomScreenUI: no Stone_1..Stone_10 widgets found")
     end
 
     self.songSlots = {}
@@ -316,6 +326,10 @@ function BottomScreenUI:Start()
     self.gameComplete = false
     self.pausedByGame = false
     self.trayFullWarned = false
+    self.lastTapStone = nil
+    self.lastTapTime = -1.0
+    self.dragStartX = 0.0
+    self.dragStartY = 0.0
     self.lastMarkerX = -1
     self.lastMarkerY = -1
     self.markerVisible = false
@@ -528,8 +542,36 @@ function BottomScreenUI:ShowNextStone(runeArt)
     end
 end
 
+function BottomScreenUI:ClearTapRecord()
+    self.lastTapStone = nil
+    self.lastTapTime = -1.0
+end
+
+function BottomScreenUI:DiscardStone(stone)
+    if not stone or not stone.available or stone.placed or stone.falling then
+        return
+    end
+
+    stone.available = false
+    stone.placed = false
+    stone.falling = false
+    stone.vx = 0.0
+    stone.vy = 0.0
+    stone.runeArt = ""
+    stone.node:SetTexture(nil)
+    stone.node:SetColor(COLOR_STONE)
+    stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
+    stone.node:SetVisible(false)
+
+    self.trayFullWarned = false
+    self:ClearTapRecord()
+    Log.Debug("BottomScreenUI: rune discarded")
+end
+
 function BottomScreenUI:StartDrag(stone, x, y)
     self.dragStone = stone
+    self.dragStartX = x
+    self.dragStartY = y
     stone.available = false
     stone.vx = 0.0
     stone.vy = 0.0
@@ -557,8 +599,12 @@ function BottomScreenUI:DropStone(x, y)
     self.dragStone = nil
     self.dragGhost:SetVisible(false)
 
+    local moved = true
     local slot = nil
     if x and y and x >= 0.0 and y >= 0.0 then
+        local dx = x - self.dragStartX
+        local dy = y - self.dragStartY
+        moved = (dx * dx + dy * dy) > (self.doubleTapDragThreshold * self.doubleTapDragThreshold)
         slot = self:FindSlotAt(x, y)
     end
 
@@ -577,6 +623,7 @@ function BottomScreenUI:DropStone(x, y)
 
         self.songFilled = self.songFilled + 1
         self.trayFullWarned = false
+        self:ClearTapRecord()
         Log.Debug("BottomScreenUI: song tile filled")
 
         if self.songFilled >= #self.song then
@@ -598,6 +645,10 @@ function BottomScreenUI:DropStone(x, y)
     stone.node:SetDimensions(STONE_SIZE, STONE_SIZE)
     stone.node:SetPosition(stone.renderX, stone.renderY)
     stone.node:SetVisible(true)
+
+    if moved then
+        self:ClearTapRecord()
+    end
 end
 
 function BottomScreenUI:BeginCompletion()
@@ -812,7 +863,17 @@ function BottomScreenUI:Tick(deltaTime)
                 if not self.dragStone then
                     local stone = self:FindStoneAt(x, y)
                     if stone then
-                        self:StartDrag(stone, x, y)
+                        local now = Engine.GetTime() or 0.0
+                        if stone == self.lastTapStone and self.lastTapTime >= 0.0 and
+                            (now - self.lastTapTime) <= self.doubleTapTime then
+                            self:DiscardStone(stone)
+                        else
+                            self.lastTapStone = stone
+                            self.lastTapTime = now
+                            self:StartDrag(stone, x, y)
+                        end
+                    else
+                        self:ClearTapRecord()
                     end
                 end
             end
@@ -876,5 +937,7 @@ function BottomScreenUI:Stop()
     self.dragStone = nil
     self.playback = nil
     self.gameComplete = false
+    self.lastTapStone = nil
+    self.lastTapTime = -1.0
     self.ready = false
 end
