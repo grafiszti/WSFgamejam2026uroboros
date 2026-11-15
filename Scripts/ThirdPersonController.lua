@@ -25,11 +25,19 @@ function ThirdPersonController:Create()
     self.enableCameraTrace = true
     self.AnimatedSprite = nil
     self.meshBaseRotation = nil
+    self.footstepSounds = nil
+    self.footstepSounds1 = nil
+    self.footstepSounds2 = nil
+    self.footstepSounds3 = nil
+    self.footstepSounds4 = nil
 
     -- State
     self.moveDir = Vec(0, 0, 0)
     self.currentAnimation = nil
     self.meshFlipped = false
+    self.footstepIndex = 1
+    self.footstepTimer = 0.0
+    self.currentFootstep = nil
     self.vertMoveChange = false
     self.lookVec = Vec()
     self.meshYaw = 0.0
@@ -57,7 +65,11 @@ function ThirdPersonController:GatherProperties()
         { name = "enableCameraTrace", type = DatumType.Bool },
         { name = "DirLight",          type = DatumType.Node },
         { name = "Music",             type = DatumType.Asset },
-        { name = "AnimatedSprite",    type = DatumType.Node }
+        { name = "AnimatedSprite",    type = DatumType.Node },
+        { name = "footstepSounds1",   type = DatumType.Asset },
+        { name = "footstepSounds2",   type = DatumType.Asset },
+        { name = "footstepSounds3",   type = DatumType.Asset },
+        { name = "footstepSounds4",   type = DatumType.Asset },
     }
 end
 
@@ -65,6 +77,13 @@ function ThirdPersonController:Start()
     if self.Music then
         Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
     end
+
+    self.footstepSounds = {
+        self.footstepSounds1,
+        self.footstepSounds2,
+        self.footstepSounds3,
+        self.footstepSounds4
+    }
 
     if (not self.collider) then
         self.collider = self:GetParent()
@@ -96,6 +115,7 @@ function ThirdPersonController:Stop()
     if self.Music then
         Audio.StopSounds(self.Music)
     end
+    self:StopFootsteps()
 
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
@@ -116,8 +136,38 @@ function ThirdPersonController:Tick(deltaTime)
 
     self:UpdateInput(deltaTime)
     self:UpdateAnimation()
+    self:UpdateFootsteps(deltaTime)
     self:NewMove(deltaTime)
     self:UpdateCamera(deltaTime)
+end
+
+function ThirdPersonController:UpdateFootsteps(deltaTime)
+    local isWalking = self.currentAnimation == "WalkFront" or self.currentAnimation == "WalkSide"
+    if not isWalking then
+        self:StopFootsteps()
+        return
+    end
+
+    self.footstepTimer = self.footstepTimer - deltaTime
+    if self.footstepTimer <= 0.0 then
+        if self.currentFootstep then
+            Audio.StopSounds(self.currentFootstep)
+        end
+
+        self.currentFootstep = self.footstepSounds[self.footstepIndex]
+        Audio.Play(self.currentFootstep)
+        self.footstepIndex = self.footstepIndex % #self.footstepSounds + 1
+        self.footstepTimer = 0.4
+    end
+end
+
+function ThirdPersonController:StopFootsteps()
+    if self.currentFootstep then
+        Audio.StopSounds(self.currentFootstep)
+        self.currentFootstep = nil
+    end
+    --self.footstepIndex = 1
+    self.footstepTimer = 0.0
 end
 
 function ThirdPersonController:UpdateAnimation()
@@ -126,8 +176,8 @@ function ThirdPersonController:UpdateAnimation()
     end
 
     local animation = "Idle"
-    local flipSide = false
-    local isMoving = self.moveDir:Magnitude() > 0.1
+    local flipSide = true
+    local isMoving = self.moveDir:Magnitude() >= 0.1
 
     if isMoving then
         if math.abs(self.moveDir.x) > math.abs(self.moveDir.z) then
