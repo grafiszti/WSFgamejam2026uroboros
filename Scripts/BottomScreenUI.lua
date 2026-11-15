@@ -267,6 +267,7 @@ function BottomScreenUI:Start()
             self.songSlots[#self.songSlots + 1] =
             {
                 node = slotNode,
+                index = i,
                 x = slotPosition.x,
                 y = slotPosition.y,
                 width = slotSize.x,
@@ -621,10 +622,20 @@ function BottomScreenUI:DropStone(x, y)
         slot.node:SetColor(COLOR_TILE_FILLED)
         slot.node:SetOpacityFloat(1.0)
 
+        local completesSong = (self.songFilled + 1 >= #self.song)
+
         self.songFilled = self.songFilled + 1
         self.trayFullWarned = false
         self:ClearTapRecord()
         Log.Debug("BottomScreenUI: song tile filled")
+
+        if not completesSong then
+            local sound = self.songSfx[slot.index]
+            if sound then
+                Audio.StopSounds(sound)
+                Audio.PlaySound2D(sound, 1.0, 1.0)
+            end
+        end
 
         if self.songFilled >= #self.song then
             self:BeginCompletion()
