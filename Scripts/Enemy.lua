@@ -15,6 +15,17 @@ local function ProjectOnPlane(v, normal)
     return v - n * Vector.Dot(v, n)
 end
 
+local function DisableChildCollision(node)
+    for i = 1, node:GetNumChildren() do
+        local child = node:GetChild(i)
+        if child:IsA("Primitive3D") then
+            child:EnableCollision(false)
+            child:EnableOverlaps(false)
+        end
+        DisableChildCollision(child)
+    end
+end
+
 function Enemy:Create()
     self.moveSpeed = 9.0
     self.bounceSpeed = 14.0
@@ -26,13 +37,16 @@ function Enemy:Create()
     self.hitCooldownDuration = 0.9
     self.bounceDuration = 0.35
 
+    self.world = nil
     self.player = nil
     self.turnPhase = 0.0
     self.hitCooldown = 0.0
     self.bounceTimer = 0.0
     self.stunRadiusSq = 1.21
     self.lastNormal = Vec()
+    self.lastGroundPos = nil
     self.initialized = false
+    self.surfaceLostWarned = false
     self.stunParticle = nil
     self.stunParticleMaterial = nil
 end
@@ -67,7 +81,10 @@ function Enemy:Start()
     self.hitCooldown = 0.5
     self.bounceTimer = 0.0
     self.player = nil
+    self.world = self:GetWorld()
+    self.lastGroundPos = nil
     self.initialized = false
+    self.surfaceLostWarned = false
 
     self.stunParticle = LoadAsset(STUN_PARTICLE)
     if self.stunParticle == nil and not sStunParticleWarned then
@@ -84,10 +101,10 @@ function Enemy:Start()
     self:AddTag("Enemy")
     self:EnableCollision(false)
     self:EnableOverlaps(false)
+    DisableChildCollision(self)
 
-    local world = self:GetWorld()
-    if world then
-        self.player = world:FindNode("ThirdPersonPlayer")
+    if self.world then
+        self.player = self.world:FindNode("ThirdPersonPlayer")
     end
 
     self:SnapToSurface()
@@ -123,6 +140,54 @@ function Enemy:SnapToSurface()
 
     self:LookAt(position + forward, normal)
     self.lastNormal = normal
+    self.lastGroundPos = position
+end
+
+function Enemy:ProbeSurface(center, up)
+    if not self.world then
+        return nil
+    end
+
+    local startPos = center + up * self.snapDistance
+    local endPos = center - up * self.snapDistance
+    local result = self.world:SweepTest(self, startPos, endPos, 2)
+    if not result or not result.hitNode or result.hitFraction >= 1.0 then
+        return nil
+    end
+
+    local node = result.hitNode
+    while node ~= nil and node ~= self do
+        node = node:GetParent()
+    end
+    if node == self then
+        return nil
+    end
+
+    local hitCenter = Vector.Lerp(startPos, endPos, result.hitFraction)
+    hitCenter = hitCenter + result.hitNormal * 0.002
+    return hitCenter, result.hitNormal
+end
+
+function Enemy:MoveOnSurface(forward, speed, dt)
+    local startPos = self:GetWorldPosition()
+    local up = self:GetUpVector()
+    local targetPos = startPos + forward * speed * dt
+    local hitCenter, hitNormal = self:ProbeSurface(targetPos, up)
+    if not hitCenter then
+        return false
+    end
+
+    self:SetWorldPosition(hitCenter)
+
+    local newForward = ProjectOnPlane(forward, hitNormal)
+    if newForward:Magnitude() > 0.001 then
+        forward = newForward:Normalize()
+    end
+    self.lastNormal = hitNormal
+    self.lastGroundPos = hitCenter
+    self.surfaceLostWarned = false
+    self:LookAt(self:GetWorldPosition() + forward, hitNormal)
+    return true
 end
 
 function Enemy:Tick(deltaTime)
@@ -154,27 +219,30 @@ function Enemy:Tick(deltaTime)
         speed = self.bounceSpeed
     end
 
-    local startPos = self:GetWorldPosition()
-    self:SetWorldPosition(startPos + forward * speed * dt)
+    local moved = self:MoveOnSurface(forward, speed, dt)
 
-    local downUp = self:GetUpVector()
-    local downStart = self:GetWorldPosition() + downUp * 0.2
-    self:SetWorldPosition(downStart)
+    if not moved then
+        forward = -forward
+        self.bounceTimer = self.bounceDuration
+        moved = self:MoveOnSurface(forward, self.bounceSpeed, dt)
 
-    local downEnd = downStart - downUp * self.snapDistance
-    local downResult = self:SweepToWorldPosition(downEnd, 2)
-
-    if downResult.hitNode then
-        local normal = downResult.hitNormal
-        local newForward = ProjectOnPlane(forward, normal)
-        if newForward:Magnitude() > 0.001 then
-            forward = newForward:Normalize()
+        if not moved then
+            local upNow = self:GetUpVector()
+            local hitCenter, hitNormal = self:ProbeSurface(self:GetWorldPosition(), upNow)
+            if hitCenter then
+                self:SetWorldPosition(hitCenter)
+                self.lastNormal = hitNormal
+                self.lastGroundPos = hitCenter
+            else
+                if self.lastGroundPos then
+                    self:SetWorldPosition(self.lastGroundPos)
+                end
+                if not self.surfaceLostWarned then
+                    self.surfaceLostWarned = true
+                    Log.Warning("Enemy: lost roller surface")
+                end
+            end
         end
-        self.lastNormal = normal
-        self:LookAt(self:GetWorldPosition() + forward, normal)
-    else
-        self:SetWorldPosition(startPos)
-        self:Reverse()
     end
 
     self:CheckPlayerDistance()
@@ -231,9 +299,4 @@ function Enemy:TryHitPlayer()
     Log.Debug("Enemy: hit player")
     self:SpawnStunParticle()
     SignalBus.Emit("PlayerStunned", self.stunDuration)
-end
-
-function Enemy:Reverse()
-    self.bounceTimer = self.bounceDuration
-    self:LookAt(self:GetWorldPosition() - self:GetForwardVector(), self:GetUpVector())
 end
