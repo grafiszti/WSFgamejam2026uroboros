@@ -32,6 +32,11 @@ function NoteObject:Create()
     self.tweenID = nil
     self.subscribed = false
     self.subscribedReveal = false
+    self.subscribedDayNight = false
+    self.revealed = false
+    self.isNightRune = false
+    self.isDay = true
+    self.phaseVisible = true
 end
 
 function NoteObject:GatherProperties()
@@ -41,12 +46,26 @@ function NoteObject:GatherProperties()
     }
 end
 
+function NoteObject:UpdateNightRune()
+    local art = self.RuneArt or ""
+    if art ~= "" then
+        self.isNightRune = art:find("Mol", 1, true) ~= nil
+    else
+        self.isNightRune = self:GetName():find("Mol", 1, true) ~= nil
+    end
+end
+
 function NoteObject:Start()
     self.PlayerInProx = false
     self.collecting = false
 
     if self.RuneArt == nil or self.RuneArt == "" then
         self.RuneArt = DeriveRuneArt(self:GetName())
+    end
+
+    self:UpdateNightRune()
+    if DayNightCycle and DayNightCycle.isDay ~= nil then
+        self.isDay = DayNightCycle.isDay
     end
 
     if self.subscribed then
@@ -60,12 +79,44 @@ function NoteObject:Start()
     end
     SignalBus.Subscribe("RuneRevealed", self, NoteObject.OnRuneRevealed)
     self.subscribedReveal = true
+
+    if self.subscribedDayNight then
+        SignalBus.Unsubscribe("DayNightChanged", self)
+    end
+    SignalBus.Subscribe("DayNightChanged", self, NoteObject.OnDayNightChanged)
+    self.subscribedDayNight = true
 end
 
 function NoteObject:OnRuneRevealed(noteName, runeArt)
-    if noteName == self:GetName() and runeArt and runeArt ~= "" then
+    if noteName ~= self:GetName() or not self:HasTag("RevealedRune") then
+        return
+    end
+
+    if runeArt and runeArt ~= "" then
         self.RuneArt = runeArt
     end
+
+    self.revealed = true
+    self:UpdateNightRune()
+    if DayNightCycle and DayNightCycle.isDay ~= nil then
+        self.isDay = DayNightCycle.isDay
+    end
+    self:ApplyPhaseVisibility(self.isDay)
+end
+
+function NoteObject:ApplyPhaseVisibility(isDay)
+    if not self.revealed or self.collecting then
+        return
+    end
+
+    local show = (self.isNightRune and not isDay) or (not self.isNightRune and isDay)
+    self.phaseVisible = show
+    self:SetVisible(show)
+end
+
+function NoteObject:OnDayNightChanged(isDay)
+    self.isDay = isDay
+    self:ApplyPhaseVisibility(isDay)
 end
 
 function NoteObject:OnShakeDetected(intensity)
@@ -129,6 +180,11 @@ function NoteObject:Stop()
     if self.subscribedReveal then
         SignalBus.Unsubscribe("RuneRevealed", self)
         self.subscribedReveal = false
+    end
+
+    if self.subscribedDayNight then
+        SignalBus.Unsubscribe("DayNightChanged", self)
+        self.subscribedDayNight = false
     end
 
     self.PlayerInProx = false

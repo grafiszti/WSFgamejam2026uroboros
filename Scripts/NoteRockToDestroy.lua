@@ -55,6 +55,9 @@ function NoteRockToDestroy:Create()
     self.baseScale = nil
     self.punchTween = nil
     self.revealed = false
+    self.isNightStone = false
+    self.phaseVisible = true
+    self.subscribedDayNight = false
 end
 
 function NoteRockToDestroy:GatherProperties()
@@ -95,6 +98,22 @@ function NoteRockToDestroy:Start()
 
     self.showPos = self:GetPosition()
     self.hiddenPos = self.showPos - self:GetUpVector() * 2.0
+
+    self.isNightStone = self:GetName():find("Mol", 1, true) ~= nil
+    self.phaseVisible = true
+
+    if self.subscribedDayNight then
+        SignalBus.Unsubscribe("DayNightChanged", self)
+    end
+    SignalBus.Subscribe("DayNightChanged", self, NoteRockToDestroy.OnDayNightChanged)
+    self.subscribedDayNight = true
+
+    local isDay = true
+    if DayNightCycle and DayNightCycle.isDay ~= nil then
+        isDay = DayNightCycle.isDay
+    end
+    local show = (self.isNightStone and not isDay) or (not self.isNightStone and isDay)
+    self:SetPhaseVisible(show, true)
 end
 
 function NoteRockToDestroy:PlayHitFeedback()
@@ -114,7 +133,7 @@ function NoteRockToDestroy:PlayHitFeedback()
 end
 
 function NoteRockToDestroy:Tick(deltaTime)
-    if self.revealed then
+    if self.revealed or not self.phaseVisible then
         return
     end
 
@@ -150,6 +169,7 @@ function NoteRockToDestroy:Tick(deltaTime)
             self.NoteNode:SetActive(true)
             self.NoteNode:SetVisible(true)
             self.NoteNode:Start()
+            self.NoteNode:AddTag("RevealedRune")
             SignalBus.Emit("RuneMined", 0)
             SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
             self:Hide(true)
@@ -175,8 +195,47 @@ function NoteRockToDestroy:Show()
     Tween.Position(self, Easing.OutExpo, self.showPos, 1.0)
 end
 
+function NoteRockToDestroy:SetPhaseVisible(show, instant)
+    if self.revealed then
+        return
+    end
+
+    if self.phaseVisible == show and not instant then
+        return
+    end
+
+    self.phaseVisible = show
+    if show then
+        if instant then
+            self:SetPosition(self.showPos)
+            self:SetActive(true)
+            self:SetVisible(true)
+        else
+            self:Show()
+        end
+    else
+        self.PlayerInProx = false
+        if instant then
+            self:SetPosition(self.hiddenPos)
+            self:SetActive(false)
+            self:SetVisible(false)
+        else
+            self:Hide(true)
+        end
+    end
+end
+
+function NoteRockToDestroy:OnDayNightChanged(isDay)
+    if self.revealed then
+        return
+    end
+
+    local show = (self.isNightStone and not isDay) or (not self.isNightStone and isDay)
+    self:SetPhaseVisible(show, false)
+end
+
 function NoteRockToDestroy:BeginOverlap(me, other)
-    if (other:HasTag("Controller")) then
+    if (other:HasTag("Controller") and self.phaseVisible) then
         self.PlayerInProx = true
     end
 end
@@ -191,6 +250,11 @@ function NoteRockToDestroy:Stop()
     if self.punchTween then
         Tween.Cancel(self.punchTween)
         self.punchTween = nil
+    end
+
+    if self.subscribedDayNight then
+        SignalBus.Unsubscribe("DayNightChanged", self)
+        self.subscribedDayNight = false
     end
 
     self.PlayerInProx = false
