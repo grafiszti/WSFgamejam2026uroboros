@@ -42,6 +42,24 @@ local SLOT_PADDING = 2.0
 local STONE_FALL_DURATION = 0.55
 local STONE_FALL_START_SCALE = 2.6
 
+local CLICK_SPARK_COUNT = 6
+local CLICK_SPARK_TEXTURE = "Particle"
+local CLICK_SPARK_SIZE = 8.0
+local CLICK_SPARK_LIFETIME = 0.35
+local CLICK_SPARK_SPEED = 90.0
+local CLICK_SPARK_DAMPING = 6.0
+local CLICK_SPARK_COLOR = Vec(1.0, 1.0, 1.0, 1.0)
+local CLICK_SPARK_FALLBACK_COLOR = Vec(1.0, 0.82, 0.28, 1.0)
+local CLICK_SPARK_DIRECTIONS =
+{
+    {  1.0,  0.0 },
+    {  0.5, -0.866 },
+    { -0.5, -0.866 },
+    { -1.0,  0.0 },
+    { -0.5,  0.866 },
+    {  0.5,  0.866 },
+}
+
 local function ResolveCanvas(script)
     local canvas = script:FindChild("BottomScreenCanvas")
     if canvas then
@@ -127,11 +145,8 @@ function BottomScreenUI:Create()
     self.canvasX = 0.0
     self.canvasY = 0.0
 
-    self.lastMarkerX = -1
-    self.lastMarkerY = -1
-    self.markerVisible = false
-    self.markerHalfWidth = 10.0
-    self.markerHalfHeight = 10.0
+    self.clickSparks = {}
+    self.sparkTexture = nil
 end
 
 function BottomScreenUI:GatherProperties()
@@ -180,8 +195,12 @@ function BottomScreenUI:Start()
     self.dragGhost = canvas:FindChild("DragGhost")
     self.drawer = canvas:FindChild("Drawer")
 
-    if not (self.marker and self.dragGhost and self.drawer) then
-        Log.Warning("BottomScreenUI: missing Drawer, DragGhost, or TouchMarker")
+    if self.marker then
+        self.marker:SetVisible(false)
+    end
+
+    if not (self.dragGhost and self.drawer) then
+        Log.Warning("BottomScreenUI: missing Drawer or DragGhost")
         self.ready = false
         return
     end
@@ -202,13 +221,11 @@ function BottomScreenUI:Start()
         Log.Warning("BottomScreenUI: MotionSensor script API missing")
     end
 
-    local markerSize = self.marker:GetDimensions()
-    self.markerHalfWidth = markerSize.x * 0.5
-    self.markerHalfHeight = markerSize.y * 0.5
-
     local canvasPosition = canvas:GetPosition()
     self.canvasX = canvasPosition.x
     self.canvasY = canvasPosition.y
+
+    self:CreateClickSparks()
 
     local drawerPosition = self.drawer:GetPosition()
     local drawerSize = self.drawer:GetDimensions()
@@ -319,7 +336,9 @@ function BottomScreenUI:Start()
     self.dragGhost:SetTexture(nil)
     self.dragGhost:SetVisible(false)
 
-    self.marker:SetVisible(false)
+    if self.marker then
+        self.marker:SetVisible(false)
+    end
 
     self.dragStone = nil
     self.songFilled = 0
@@ -331,9 +350,6 @@ function BottomScreenUI:Start()
     self.lastTapTime = -1.0
     self.dragStartX = 0.0
     self.dragStartY = 0.0
-    self.lastMarkerX = -1
-    self.lastMarkerY = -1
-    self.markerVisible = false
 
     if self.subscribedNote then
         SignalBus.Unsubscribe("NoteCollected", self)
@@ -344,6 +360,106 @@ function BottomScreenUI:Start()
     Engine.SetPaused(false)
     self.ready = true
     Log.Debug("BottomScreenUI: ready with " .. tostring(#self.song) .. " song tiles")
+end
+
+function BottomScreenUI:CreateClickSparks()
+    self.sparkTexture = LoadTextureAsset(CLICK_SPARK_TEXTURE)
+    if self.sparkTexture == nil then
+        Log.Warning("BottomScreenUI: missing spark texture " .. CLICK_SPARK_TEXTURE)
+    end
+
+    self.clickSparks = {}
+    for i = 1, CLICK_SPARK_COUNT do
+        local name = "ClickSpark_" .. tostring(i)
+        local node = self.canvas and self.canvas:FindChild(name) or nil
+        if node == nil and self.canvas then
+            node = self.canvas:CreateChild("Quad")
+            if node then
+                node:SetName(name)
+            end
+        end
+
+        if node then
+            node:SetDimensions(CLICK_SPARK_SIZE, CLICK_SPARK_SIZE)
+            node:SetTexture(self.sparkTexture)
+            if self.sparkTexture then
+                node:SetColor(CLICK_SPARK_COLOR)
+            else
+                node:SetColor(CLICK_SPARK_FALLBACK_COLOR)
+            end
+            node:SetOpacityFloat(1.0)
+            node:SetVisible(false)
+            self.clickSparks[#self.clickSparks + 1] =
+            {
+                node = node,
+                x = 0.0,
+                y = 0.0,
+                vx = 0.0,
+                vy = 0.0,
+                life = 0.0,
+                active = false,
+            }
+        end
+    end
+end
+
+function BottomScreenUI:SpawnClickBurst(x, y)
+    if #self.clickSparks == 0 then
+        return
+    end
+
+    local localX = x - self.canvasX
+    local localY = y - self.canvasY
+
+    for i = 1, #self.clickSparks do
+        local spark = self.clickSparks[i]
+        local direction = CLICK_SPARK_DIRECTIONS[i]
+        if direction then
+            spark.active = true
+            spark.life = CLICK_SPARK_LIFETIME
+            spark.x = localX
+            spark.y = localY
+            spark.vx = direction[1] * CLICK_SPARK_SPEED
+            spark.vy = direction[2] * CLICK_SPARK_SPEED
+            spark.node:SetDimensions(CLICK_SPARK_SIZE, CLICK_SPARK_SIZE)
+            spark.node:SetPosition(localX - CLICK_SPARK_SIZE * 0.5, localY - CLICK_SPARK_SIZE * 0.5)
+            spark.node:SetOpacityFloat(1.0)
+            spark.node:SetVisible(true)
+        end
+    end
+end
+
+function BottomScreenUI:UpdateClickSparks(dt)
+    if dt <= 0.0 then
+        return
+    end
+
+    for i = 1, #self.clickSparks do
+        local spark = self.clickSparks[i]
+        if spark.active then
+            spark.life = spark.life - dt
+            if spark.life <= 0.0 then
+                spark.active = false
+                spark.node:SetVisible(false)
+            else
+                local damping = 1.0 - CLICK_SPARK_DAMPING * dt
+                if damping < 0.0 then
+                    damping = 0.0
+                end
+
+                spark.vx = spark.vx * damping
+                spark.vy = spark.vy * damping
+                spark.x = spark.x + spark.vx * dt
+                spark.y = spark.y + spark.vy * dt
+
+                local t = spark.life / CLICK_SPARK_LIFETIME
+                local size = CLICK_SPARK_SIZE * (0.5 + 0.5 * t)
+                spark.node:SetDimensions(size, size)
+                spark.node:SetPosition(spark.x - size * 0.5, spark.y - size * 0.5)
+                spark.node:SetOpacityFloat(t)
+            end
+        end
+    end
 end
 
 function BottomScreenUI:GenerateSong()
@@ -450,20 +566,6 @@ function BottomScreenUI:ApplyStoneNodePosition(stone)
         stone.renderX = posX
         stone.renderY = posY
         stone.node:SetPosition(posX, posY)
-    end
-end
-
-function BottomScreenUI:UpdateMarker(x, y)
-    local markerX = x - self.canvasX - self.markerHalfWidth
-    local markerY = y - self.canvasY - self.markerHalfHeight
-    if markerX ~= self.lastMarkerX or markerY ~= self.lastMarkerY then
-        self.lastMarkerX = markerX
-        self.lastMarkerY = markerY
-        self.marker:SetPosition(markerX, markerY)
-    end
-    if not self.markerVisible then
-        self.markerVisible = true
-        self.marker:SetVisible(true)
     end
 end
 
@@ -865,12 +967,13 @@ function BottomScreenUI:Tick(deltaTime)
     self:UpdateFallingStones(gameDelta)
     self:UpdateDrawerPhysics(gameDelta)
     self:UpdatePlayback(gameDelta)
+    self:UpdateClickSparks(gameDelta)
 
     if not self.gameComplete then
         if Input.IsPointerPressed(self.pointerIndex) then
             local x, y = Input.GetPointerPosition(self.pointerIndex)
             if x then
-                self:UpdateMarker(x, y)
+                self:SpawnClickBurst(x, y)
                 if not self.dragStone then
                     local stone = self:FindStoneAt(x, y)
                     if stone then
@@ -891,7 +994,6 @@ function BottomScreenUI:Tick(deltaTime)
         elseif Input.IsPointerDown(self.pointerIndex) then
             local x, y = Input.GetPointerPosition(self.pointerIndex)
             if x then
-                self:UpdateMarker(x, y)
                 if self.dragStone then
                     self:UpdateDrag(x, y)
                 end
@@ -907,19 +1009,6 @@ function BottomScreenUI:Tick(deltaTime)
                     self:DropStone(-1.0, -1.0)
                 end
             end
-
-            if self.markerVisible then
-                self.markerVisible = false
-                self.marker:SetVisible(false)
-            end
-
-            self.lastMarkerX = -1
-            self.lastMarkerY = -1
-        end
-    else
-        if self.markerVisible then
-            self.markerVisible = false
-            self.marker:SetVisible(false)
         end
     end
 end
@@ -950,5 +1039,7 @@ function BottomScreenUI:Stop()
     self.gameComplete = false
     self.lastTapStone = nil
     self.lastTapTime = -1.0
+    self.clickSparks = {}
+    self.sparkTexture = nil
     self.ready = false
 end

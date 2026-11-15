@@ -3,7 +3,11 @@ NoteRockToDestroy = {}
 local STONE_COLLISION_GROUP = 8
 local SURFACE_COLLISION_MASK = 0x02
 local REVEAL_SOUND = "Magic-spell-SFF"
+local ROCK_PARTICLE = "RockDestroyParticle"
+local REVEAL_PARTICLE = "StarsDestroyParticle"
 local sRevealSoundWarned = false
+local sRockParticleWarned = false
+local sRevealParticleWarned = false
 
 local function ApplyStoneCollisionGroup(node)
     if node == nil then
@@ -60,6 +64,11 @@ function NoteRockToDestroy:Create()
     self.RuneArt = ""
     self.RevealSound = nil
     self.RevealVolume = 0.5
+    self.HitParticle = nil
+    self.RevealParticle = nil
+    self.hitParticle = nil
+    self.revealParticle = nil
+    self.particleVelocity = Vec(0.0, 1.5, 0.0)
     self.proximityRadiusSq = 12.25
     self.player = nil
     self.hitsRemaining = 1
@@ -81,6 +90,8 @@ function NoteRockToDestroy:GatherProperties()
         { name = "RuneArt",        type = DatumType.String },
         { name = "RevealSound",    type = DatumType.Asset },
         { name = "RevealVolume",   type = DatumType.Float },
+        { name = "HitParticle",    type = DatumType.Asset },
+        { name = "RevealParticle", type = DatumType.Asset },
     }
 end
 
@@ -107,6 +118,24 @@ function NoteRockToDestroy:Start()
     if self.RevealSound == nil and not sRevealSoundWarned then
         sRevealSoundWarned = true
         Log.Warning("NoteRockToDestroy: missing sound " .. REVEAL_SOUND)
+    end
+
+    self.hitParticle = self.HitParticle
+    if self.hitParticle == nil then
+        self.hitParticle = LoadAsset(ROCK_PARTICLE)
+    end
+    if self.hitParticle == nil and not sRockParticleWarned then
+        sRockParticleWarned = true
+        Log.Warning("NoteRockToDestroy: missing particle " .. ROCK_PARTICLE)
+    end
+
+    self.revealParticle = self.RevealParticle
+    if self.revealParticle == nil then
+        self.revealParticle = LoadAsset(REVEAL_PARTICLE)
+    end
+    if self.revealParticle == nil and not sRevealParticleWarned then
+        sRevealParticleWarned = true
+        Log.Warning("NoteRockToDestroy: missing particle " .. REVEAL_PARTICLE)
     end
 
     if not self.NoteNode then
@@ -146,6 +175,22 @@ function NoteRockToDestroy:Start()
     end
     local show = (self.isNightStone and not isDay) or (not self.isNightStone and isDay)
     self:SetPhaseVisible(show, true)
+end
+
+function NoteRockToDestroy:SpawnParticleBurst(system, position)
+    if system == nil then
+        return
+    end
+
+    local world = self:GetWorld()
+    if not world then
+        return
+    end
+
+    local particle = world:SpawnParticle(system, position, self.particleVelocity)
+    if particle and TargetScreen then
+        particle:SetTargetScreen(TargetScreen.Top)
+    end
 end
 
 function NoteRockToDestroy:PlayHitFeedback()
@@ -261,6 +306,7 @@ function NoteRockToDestroy:Tick(deltaTime)
 
             if self.hitsRemaining > 0 then
                 self:PlayHitFeedback()
+                self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
                 SignalBus.Emit("RuneMined", self.hitsRemaining)
                 return
             end
@@ -272,6 +318,8 @@ function NoteRockToDestroy:Tick(deltaTime)
             self.NoteNode:SetVisible(true)
             self.NoteNode:Start()
             self.NoteNode:AddTag("RevealedRune")
+            self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
+            self:SpawnParticleBurst(self.revealParticle, self.NoteNode:GetWorldPosition())
             SignalBus.Emit("RuneMined", 0)
             SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
             if self.RevealSound then
