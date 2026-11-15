@@ -9,6 +9,11 @@
             "name": "Roibos",
             "platform": 5,
             "targetId": "polyphase.n3ds",
+            "targetOptions": {
+                "n3ds.iconPath": "C:\\msys64\\opt\\wonderful\\thirdparty\\blocksds\\core\\examples\\WSFgamejam2026uroboros\\Assets\\Art\\Ikonka.oct",
+                "n3ds.title": "Roibos Song",
+                "n3ds.author": "WSF 2026"
+            },
             "embedded": true,
             "staticContent": false,
             "contentPak": false,
