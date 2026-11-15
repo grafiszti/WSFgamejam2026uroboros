@@ -1,6 +1,7 @@
 NoteRockToDestroy = {}
 
 local STONE_COLLISION_GROUP = 8
+local SURFACE_COLLISION_MASK = 0x02
 local REVEAL_SOUND = "Magic-spell-SFF"
 local sRevealSoundWarned = false
 
@@ -54,6 +55,8 @@ function NoteRockToDestroy:Create()
     self.showPos = self:GetPosition()
     self.HitsRequired = 1
     self.ProximityRadius = 3.5
+    self.SurfaceClearance = 1.25
+    self.SnapDistance = 12.0
     self.RuneArt = ""
     self.RevealSound = nil
     self.RevealVolume = 0.5
@@ -73,6 +76,8 @@ function NoteRockToDestroy:GatherProperties()
         { name = "NoteNode",       type = DatumType.Node },
         { name = "HitsRequired",   type = DatumType.Integer },
         { name = "ProximityRadius", type = DatumType.Float },
+        { name = "SurfaceClearance", type = DatumType.Float },
+        { name = "SnapDistance",    type = DatumType.Float },
         { name = "RuneArt",        type = DatumType.String },
         { name = "RevealSound",    type = DatumType.Asset },
         { name = "RevealVolume",   type = DatumType.Float },
@@ -85,6 +90,8 @@ function NoteRockToDestroy:Start()
     self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
     self.ProximityRadius = math.max(0.5, self.ProximityRadius or 3.5)
     self.proximityRadiusSq = self.ProximityRadius * self.ProximityRadius
+    self.SurfaceClearance = math.max(0.0, self.SurfaceClearance or 1.25)
+    self.SnapDistance = math.max(0.5, self.SnapDistance or 12.0)
     self.baseScale = self:GetScale()
     self.punchTween = nil
     self.revealed = false
@@ -171,6 +178,58 @@ function NoteRockToDestroy:UpdatePlayerProximity()
     self.PlayerInProx = (dx * dx + dy * dy + dz * dz) <= self.proximityRadiusSq
 end
 
+function NoteRockToDestroy:GetSurfaceUp()
+    local up = nil
+    if self.player then
+        up = self.player:GetUpVector()
+    end
+
+    if up == nil or up:Magnitude() < 0.0001 then
+        up = self:GetUpVector()
+    end
+
+    if up == nil or up:Magnitude() < 0.0001 then
+        return Vec(0, 1, 0)
+    end
+
+    return up:Normalize()
+end
+
+function NoteRockToDestroy:SnapNoteAboveSurface()
+    if not self.NoteNode then
+        return
+    end
+
+    local world = self:GetWorld()
+    if not world then
+        return
+    end
+
+    local up = self:GetSurfaceUp()
+    local notePos = self.NoteNode:GetWorldPosition()
+    local startPos = notePos + up * self.SnapDistance
+    local endPos = notePos - up * self.SnapDistance
+    local ignore = { self, self.NoteNode }
+    local result = world:RayTest(startPos, endPos, SURFACE_COLLISION_MASK, ignore)
+
+    if result and result.hitNode then
+        local height = Vector.Dot(notePos - result.hitPosition, up)
+        if height < self.SurfaceClearance then
+            local normal = result.hitNormal
+            local normalLength = normal and normal:Magnitude() or 0.0
+            if normalLength < 0.0001 then
+                normal = up
+            else
+                normal = normal / normalLength
+                if Vector.Dot(normal, up) < 0.0 then
+                    normal = normal * -1.0
+                end
+            end
+            self.NoteNode:SetWorldPosition(result.hitPosition + normal * self.SurfaceClearance)
+        end
+    end
+end
+
 function NoteRockToDestroy:Tick(deltaTime)
     if self.revealed or not self.phaseVisible then
         self.PlayerInProx = false
@@ -208,6 +267,7 @@ function NoteRockToDestroy:Tick(deltaTime)
 
             self.revealed = true
             self.NoteNode:Attach(world:GetRootNode(), true)
+            self:SnapNoteAboveSurface()
             self.NoteNode:SetActive(true)
             self.NoteNode:SetVisible(true)
             self.NoteNode:Start()
