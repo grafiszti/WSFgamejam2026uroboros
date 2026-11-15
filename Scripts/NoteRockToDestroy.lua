@@ -9,6 +9,7 @@ local function ApplyStoneCollisionGroup(node)
 
     if node:IsA("Primitive3D") then
         node:SetCollisionGroup(STONE_COLLISION_GROUP)
+        node:EnableOverlaps(false)
     end
 
     local childCount = node:GetNumChildren()
@@ -50,7 +51,10 @@ function NoteRockToDestroy:Create()
     self.hiddenPos = self:GetPosition() + (myPos - self:GetWorldPosition()):Normalize3() * 2;
     self.showPos = self:GetPosition()
     self.HitsRequired = 1
+    self.ProximityRadius = 3.5
     self.RuneArt = ""
+    self.proximityRadiusSq = 12.25
+    self.player = nil
     self.hitsRemaining = 1
     self.baseScale = nil
     self.punchTween = nil
@@ -62,9 +66,10 @@ end
 
 function NoteRockToDestroy:GatherProperties()
     return {
-        { name = "NoteNode",     type = DatumType.Node },
-        { name = "HitsRequired", type = DatumType.Integer },
-        { name = "RuneArt",      type = DatumType.String },
+        { name = "NoteNode",       type = DatumType.Node },
+        { name = "HitsRequired",   type = DatumType.Integer },
+        { name = "ProximityRadius", type = DatumType.Float },
+        { name = "RuneArt",        type = DatumType.String },
     }
 end
 
@@ -72,6 +77,8 @@ function NoteRockToDestroy:Start()
     ApplyStoneCollisionGroup(self)
 
     self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
+    self.ProximityRadius = math.max(0.5, self.ProximityRadius or 3.5)
+    self.proximityRadiusSq = self.ProximityRadius * self.ProximityRadius
     self.baseScale = self:GetScale()
     self.punchTween = nil
     self.revealed = false
@@ -95,6 +102,9 @@ function NoteRockToDestroy:Start()
     if not self.NoteNode then
         Log.Warning("NoteRockToDestroy: missing NoteNode on " .. self:GetName())
     end
+
+    local world = self:GetWorld()
+    self.player = world and world:FindNode("ThirdPersonPlayer") or nil
 
     self.showPos = self:GetPosition()
     self.hiddenPos = self.showPos - self:GetUpVector() * 2.0
@@ -132,10 +142,27 @@ function NoteRockToDestroy:PlayHitFeedback()
     end)
 end
 
-function NoteRockToDestroy:Tick(deltaTime)
-    if self.revealed or not self.phaseVisible then
+function NoteRockToDestroy:UpdatePlayerProximity()
+    if not self.player then
+        self.PlayerInProx = false
         return
     end
+
+    local rockPos = self:GetWorldPosition()
+    local playerPos = self.player:GetWorldPosition()
+    local dx = rockPos.x - playerPos.x
+    local dy = rockPos.y - playerPos.y
+    local dz = rockPos.z - playerPos.z
+    self.PlayerInProx = (dx * dx + dy * dy + dz * dz) <= self.proximityRadiusSq
+end
+
+function NoteRockToDestroy:Tick(deltaTime)
+    if self.revealed or not self.phaseVisible then
+        self.PlayerInProx = false
+        return
+    end
+
+    self:UpdatePlayerProximity()
 
     if (self.PlayerInProx) then
         if (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then

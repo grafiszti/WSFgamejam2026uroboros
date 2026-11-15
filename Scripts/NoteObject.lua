@@ -28,6 +28,9 @@ function NoteObject:Create()
     if self.NodeType == nil then self.NodeType = 0 end
     if self.RuneArt == nil then self.RuneArt = "" end
     self.PlayerInProx = false
+    self.ProximityRadius = 3.0
+    self.proximityRadiusSq = 9.0
+    self.player = nil
     self.collecting = false
     self.tweenID = nil
     self.subscribed = false
@@ -42,6 +45,7 @@ end
 function NoteObject:GatherProperties()
     return {
         { name = "NodeType", type = DatumType.Integer },
+        { name = "ProximityRadius", type = DatumType.Float },
         { name = "RuneArt", type = DatumType.String },
     }
 end
@@ -57,7 +61,22 @@ end
 
 function NoteObject:Start()
     self.PlayerInProx = false
+    self.ProximityRadius = math.max(0.5, self.ProximityRadius or 3.0)
+    self.proximityRadiusSq = self.ProximityRadius * self.ProximityRadius
     self.collecting = false
+
+    local world = self:GetWorld()
+    self.player = world and world:FindNode("ThirdPersonPlayer") or nil
+
+    local function disableOverlaps(node)
+        if node:IsA("Primitive3D") then
+            node:EnableOverlaps(false)
+        end
+        for i = 1, node:GetNumChildren() do
+            disableOverlaps(node:GetChild(i))
+        end
+    end
+    disableOverlaps(self)
 
     if self.RuneArt == nil or self.RuneArt == "" then
         self.RuneArt = DeriveRuneArt(self:GetName())
@@ -117,6 +136,25 @@ end
 function NoteObject:OnDayNightChanged(isDay)
     self.isDay = isDay
     self:ApplyPhaseVisibility(isDay)
+end
+
+function NoteObject:Tick(deltaTime)
+    if self.collecting or not self.revealed then
+        self.PlayerInProx = false
+        return
+    end
+
+    if not self.player then
+        self.PlayerInProx = false
+        return
+    end
+
+    local notePos = self:GetWorldPosition()
+    local playerPos = self.player:GetWorldPosition()
+    local dx = notePos.x - playerPos.x
+    local dy = notePos.y - playerPos.y
+    local dz = notePos.z - playerPos.z
+    self.PlayerInProx = (dx * dx + dy * dy + dz * dz) <= self.proximityRadiusSq
 end
 
 function NoteObject:OnShakeDetected(intensity)
@@ -189,4 +227,5 @@ function NoteObject:Stop()
 
     self.PlayerInProx = false
     self.collecting = false
+    self.player = nil
 end

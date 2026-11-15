@@ -49,6 +49,7 @@ function ThirdPersonController:Create()
     self.stunTimer = 0.0
     self.subscribedStun = false
     self.subscribedComplete = false
+    self.consoleVisible = false
 end
 
 function ThirdPersonController:GatherProperties()
@@ -111,6 +112,31 @@ function ThirdPersonController:Start()
     end
     SignalBus.Subscribe("GameCompleted", self, ThirdPersonController.OnGameCompleted)
     self.subscribedComplete = true
+
+    self.consoleVisible = false
+    Renderer.EnableConsole(false)
+    self:DisableOverlapChecks()
+end
+
+function ThirdPersonController:DisableOverlapChecks()
+    local function disableOverlaps(node)
+        if node:IsA("Primitive3D") then
+            node:EnableOverlaps(false)
+        end
+        for i = 1, node:GetNumChildren() do
+            disableOverlaps(node:GetChild(i))
+        end
+    end
+
+    if self.collider then
+        self.collider:EnableOverlaps(false)
+    end
+
+    local world = self:GetWorld()
+    local root = world and world:GetRootNode()
+    if root then
+        disableOverlaps(root)
+    end
 end
 
 function ThirdPersonController:OnPlayerStunned(duration)
@@ -142,9 +168,14 @@ function ThirdPersonController:Stop()
         self.subscribedComplete = false
     end
     self.stunTimer = 0.0
+
+    Renderer.EnableConsole(false)
+    self.consoleVisible = false
 end
 
 function ThirdPersonController:Tick(deltaTime)
+    self:UpdateDebugConsoleToggle()
+
     if self.stunTimer <= 0.0 and
         (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
         self:OnPlayerStunned(0.8)
@@ -159,6 +190,13 @@ function ThirdPersonController:Tick(deltaTime)
     self:UpdateFootsteps(deltaTime)
     self:NewMove(deltaTime)
     self:UpdateCamera(deltaTime)
+end
+
+function ThirdPersonController:UpdateDebugConsoleToggle()
+    if Input.IsGamepadPressed(Gamepad.L2) or Input.IsKeyPressed(Key.F1) then
+        self.consoleVisible = not self.consoleVisible
+        Renderer.EnableConsole(self.consoleVisible)
+    end
 end
 
 function ThirdPersonController:UpdateFootsteps(deltaTime)
