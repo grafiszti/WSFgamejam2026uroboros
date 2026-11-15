@@ -336,6 +336,7 @@ function NoteRockToDestroy:Hide(fast)
     if (fast) then
         dur = 0.24
     end
+    self:EnableCollision(false)
     Tween.Position(self, Easing.OutExpo, self.hiddenPos, dur, function()
         self:SetActive(false)
         self:SetVisible(false)
@@ -344,6 +345,7 @@ end
 
 function NoteRockToDestroy:Show()
     self.revealed = false
+    self:EnableCollision(true)
     self:SetActive(true)
     self:SetVisible(true)
     Tween.Position(self, Easing.OutExpo, self.showPos, 1.0)
@@ -361,6 +363,7 @@ function NoteRockToDestroy:SetPhaseVisible(show, instant)
     self.phaseVisible = show
     if show then
         if instant then
+            self:EnableCollision(true)
             self:SetPosition(self.showPos)
             self:SetActive(true)
             self:SetVisible(true)
@@ -370,6 +373,7 @@ function NoteRockToDestroy:SetPhaseVisible(show, instant)
     else
         self.PlayerInProx = false
         if instant then
+            self:EnableCollision(false)
             self:SetPosition(self.hiddenPos)
             self:SetActive(false)
             self:SetVisible(false)

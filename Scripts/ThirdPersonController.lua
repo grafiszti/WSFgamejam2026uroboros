@@ -101,6 +101,7 @@ function ThirdPersonController:Start()
     end
 
     self.stunTimer = 0.0
+    self.lastNormal = self.collider:GetUpVector():Normalize()
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
     end
@@ -315,26 +316,53 @@ function ThirdPersonController:UpdateInput(deltaTime)
 end
 
 function ThirdPersonController:NewMove(deltaTime)
+    local dt = math.min(deltaTime, 0.05)
+
     if (self.vertMoveChange) then
         self.collider:SetRotation(self.tweenTarget)
     end
+
     local moveVector = (self.collider:GetForwardVector() * -self.moveDir.z + self.collider:GetRightVector() * self.moveDir.x)
-    local startPos = self.collider:GetWorldPosition()
-    --self.collider:SetWorldPosition(startPos)
-    local endPos = startPos + moveVector * self.moveSpeed * deltaTime
-    local sweepRes = self.collider:SweepToWorldPosition(endPos)
-    startPos = self.collider:GetWorldPosition() + self.collider:GetUpVector() * 0.2
-    self.collider:SetWorldPosition(startPos)
-    endPos = startPos + -self.collider:GetUpVector() * 5
-    sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
-    if (sweepRes.hitNode and (sweepRes.hitNormal ~= self.lastNormal)) then
-        if (self.tweenID) then
-            Tween.Cancel(self.tweenID)
+
+    if self.lastNormal:Magnitude() > 0.5 then
+        moveVector = moveVector - self.lastNormal * Vector.Dot(moveVector, self.lastNormal)
+    end
+
+    local deltaVec = moveVector * self.moveSpeed * dt
+    for i = 1, 3 do
+        if deltaVec:Magnitude() < 0.0001 then
+            break
         end
-        local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
-        self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
-        self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-            self.tweenTarget, 0.12)
+
+        local startPos = self.collider:GetWorldPosition()
+        local sweepRes = self.collider:SweepToWorldPosition(startPos + deltaVec)
+        if not sweepRes.hitNode then
+            break
+        end
+
+        deltaVec = deltaVec * (1.0 - sweepRes.hitFraction)
+        local into = Vector.Dot(deltaVec, sweepRes.hitNormal)
+        if into < 0.0 then
+            deltaVec = deltaVec - sweepRes.hitNormal * into
+        end
+    end
+
+    local up = self.collider:GetUpVector()
+    local startPos = self.collider:GetWorldPosition() + up * 0.2
+    self.collider:SetWorldPosition(startPos)
+    local endPos = startPos + -up * 5
+    local sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
+    if sweepRes.hitNode then
+        if (sweepRes.hitNormal ~= self.lastNormal) then
+            if (self.tweenID) then
+                Tween.Cancel(self.tweenID)
+            end
+            local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
+            self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
+            self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
+                self.tweenTarget, 0.12)
+        end
+        self.lastNormal = sweepRes.hitNormal
     end
     self.DirLight:LookAt(-self.collider:GetUpVector() * 10 + self.collider:GetForwardVector() * 2)
 end
