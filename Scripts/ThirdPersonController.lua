@@ -10,6 +10,11 @@ ThirdPersonController.kGroundingDot = 0.9
 local kEnvironmentMask = 0x02
 local kStoneGroup = 0x08
 local kSolidMask = kEnvironmentMask + kStoneGroup
+local kGroundProbeDistance = 5.0
+local kGroundSnapPadding = 0.002
+local kGroundNormalDot = 0.5
+local kGroundTweenDot = 0.999
+local kGroundRecoveryFrames = 3
 
 function ThirdPersonController:Create()
     -- Properties
@@ -50,6 +55,10 @@ function ThirdPersonController:Create()
     self.subscribedStun = false
     self.subscribedComplete = false
     self.consoleVisible = false
+    self.lastValidGroundPos = Vec()
+    self.groundMissFrames = 0
+    self.groundLost = false
+    self.groundHitLogged = false
 end
 
 function ThirdPersonController:GatherProperties()
@@ -98,10 +107,22 @@ function ThirdPersonController:Start()
 
     if self.mesh then
         self.meshBaseRotation = self.mesh:GetRotation()
+        if self.mesh ~= self.collider then
+            if self.mesh.EnableCollision then
+                self.mesh:EnableCollision(false)
+            end
+            if self.mesh.EnableOverlaps then
+                self.mesh:EnableOverlaps(false)
+            end
+        end
     end
 
     self.stunTimer = 0.0
     self.lastNormal = self.collider:GetUpVector():Normalize()
+    self.lastValidGroundPos = self.collider:GetWorldPosition()
+    self.groundMissFrames = 0
+    self.groundLost = false
+    self.groundHitLogged = false
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
     end
@@ -169,6 +190,13 @@ function ThirdPersonController:Stop()
         self.subscribedComplete = false
     end
     self.stunTimer = 0.0
+
+    if self.tweenID then
+        Tween.Cancel(self.tweenID)
+        self.tweenID = nil
+    end
+    self.groundMissFrames = 0
+    self.groundLost = false
 
     Renderer.EnableConsole(false)
     self.consoleVisible = false
@@ -349,21 +377,55 @@ function ThirdPersonController:NewMove(deltaTime)
 
     local up = self.collider:GetUpVector()
     local startPos = self.collider:GetWorldPosition() + up * 0.2
-    self.collider:SetWorldPosition(startPos)
-    local endPos = startPos + -up * 5
-    local sweepRes = self.collider:SweepToWorldPosition(endPos, 2)
-    if sweepRes.hitNode then
-        if (sweepRes.hitNormal ~= self.lastNormal) then
-            if (self.tweenID) then
-                Tween.Cancel(self.tweenID)
+    local endPos = startPos + -up * kGroundProbeDistance
+    local sweepRes = self.collider:SweepToWorldPosition(endPos, kEnvironmentMask, true)
+
+    local grounded = false
+    local hitNormal = sweepRes.hitNormal
+    local normalLength = hitNormal and hitNormal:Magnitude() or 0.0
+    if sweepRes.hitNode and normalLength > 0.0001 then
+        hitNormal = hitNormal / normalLength
+        if Vector.Dot(hitNormal, up) > kGroundNormalDot then
+            grounded = true
+            local snapPos = startPos + (endPos - startPos) * sweepRes.hitFraction + hitNormal * kGroundSnapPadding
+            self.collider:SetWorldPosition(snapPos)
+            self.lastValidGroundPos = snapPos
+            self.groundMissFrames = 0
+            self.groundLost = false
+
+            if not self.groundHitLogged then
+                self.groundHitLogged = true
+                Log.Debug("ThirdPersonController: ground hit " .. sweepRes.hitNode:GetName())
             end
-            local angle = Vector.SignedAngle(self.collider:GetUpVector(), sweepRes.hitNormal, self.collider:GetRightVector())
-            self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
-            self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-                self.tweenTarget, 0.12)
+
+            if Vector.Dot(hitNormal, self.lastNormal) < kGroundTweenDot then
+                if (self.tweenID) then
+                    Tween.Cancel(self.tweenID)
+                end
+                local angle = Vector.SignedAngle(self.collider:GetUpVector(), hitNormal, self.collider:GetRightVector())
+                self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
+                self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
+                    self.tweenTarget, 0.12)
+            end
+            self.lastNormal = hitNormal
         end
-        self.lastNormal = sweepRes.hitNormal
     end
+
+    if not grounded then
+        self.groundMissFrames = self.groundMissFrames + 1
+        if self.groundMissFrames == 1 then
+            Log.Warning("ThirdPersonController: ground probe missed; holding last valid ground position")
+        end
+
+        if self.groundMissFrames >= kGroundRecoveryFrames then
+            self.collider:SetWorldPosition(self.lastValidGroundPos)
+            if not self.groundLost then
+                self.groundLost = true
+                Log.Warning("ThirdPersonController: restoring player to last valid ground position")
+            end
+        end
+    end
+
     self.DirLight:LookAt(-self.collider:GetUpVector() * 10 + self.collider:GetForwardVector() * 2)
 end
 
