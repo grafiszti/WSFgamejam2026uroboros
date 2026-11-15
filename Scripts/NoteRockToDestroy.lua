@@ -1,6 +1,8 @@
 NoteRockToDestroy = {}
 
 local STONE_COLLISION_GROUP = 8
+local REVEAL_SOUND = "Magic-spell-SFF"
+local sRevealSoundWarned = false
 
 local function ApplyStoneCollisionGroup(node)
     if node == nil then
@@ -53,6 +55,8 @@ function NoteRockToDestroy:Create()
     self.HitsRequired = 1
     self.ProximityRadius = 3.5
     self.RuneArt = ""
+    self.RevealSound = nil
+    self.RevealVolume = 0.5
     self.proximityRadiusSq = 12.25
     self.player = nil
     self.hitsRemaining = 1
@@ -70,6 +74,8 @@ function NoteRockToDestroy:GatherProperties()
         { name = "HitsRequired",   type = DatumType.Integer },
         { name = "ProximityRadius", type = DatumType.Float },
         { name = "RuneArt",        type = DatumType.String },
+        { name = "RevealSound",    type = DatumType.Asset },
+        { name = "RevealVolume",   type = DatumType.Float },
     }
 end
 
@@ -85,6 +91,15 @@ function NoteRockToDestroy:Start()
 
     if self.RuneArt == nil or self.RuneArt == "" then
         self.RuneArt = DeriveRuneArt(self:GetName())
+    end
+
+    self.RevealVolume = math.max(0.0, self.RevealVolume or 0.5)
+    if self.RevealSound == nil then
+        self.RevealSound = LoadAsset(REVEAL_SOUND)
+    end
+    if self.RevealSound == nil and not sRevealSoundWarned then
+        sRevealSoundWarned = true
+        Log.Warning("NoteRockToDestroy: missing sound " .. REVEAL_SOUND)
     end
 
     if not self.NoteNode then
@@ -199,6 +214,10 @@ function NoteRockToDestroy:Tick(deltaTime)
             self.NoteNode:AddTag("RevealedRune")
             SignalBus.Emit("RuneMined", 0)
             SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
+            if self.RevealSound then
+                Audio.StopSounds(self.RevealSound)
+                Audio.PlaySound2D(self.RevealSound, self.RevealVolume, 1.0)
+            end
             self:Hide(true)
         end
     end

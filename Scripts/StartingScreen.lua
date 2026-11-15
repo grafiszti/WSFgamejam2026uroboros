@@ -2,9 +2,12 @@ StartingScreen = {}
 
 local IMAGE_NODE = "StartImage"
 local NEXT_SCENE = "SC_Default"
+local INTRO_SOUND = "Nintrendo-Roibos-SFX"
 
 function StartingScreen:Create()
     self.FadeInDuration = 2.0
+    self.StartSound = nil
+    self.StartVolume = 1.0
 
     self.phase = "in"
     self.timer = 0.0
@@ -17,11 +20,14 @@ end
 function StartingScreen:GatherProperties()
     return {
         { name = "FadeInDuration", type = DatumType.Float },
+        { name = "StartSound", type = DatumType.Asset },
+        { name = "StartVolume", type = DatumType.Float },
     }
 end
 
 function StartingScreen:Start()
     self.FadeInDuration = math.max(0.0, self.FadeInDuration or 2.0)
+    self.StartVolume = math.max(0.0, self.StartVolume or 1.0)
 
     self.phase = "in"
     self.timer = 0.0
@@ -30,6 +36,16 @@ function StartingScreen:Start()
     self.world = self:GetWorld()
 
     Renderer.EnableConsole(false)
+
+    if self.StartSound == nil then
+        self.StartSound = LoadAsset(INTRO_SOUND)
+    end
+
+    if self.StartSound then
+        Audio.PlaySound2D(self.StartSound, self.StartVolume, 1.0)
+    else
+        Log.Warning("StartingScreen: missing sound " .. INTRO_SOUND)
+    end
 
     self.image = self:FindChild(IMAGE_NODE)
     if self.image == nil then
