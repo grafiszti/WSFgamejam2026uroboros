@@ -15,8 +15,11 @@ local function DeriveRuneArt(nodeName)
         end
     end
 
-    if suffix and (suffix:match("^Dur[1-6]$") or suffix:match("^Mol[1-4]$")) then
-        return "Tile - " .. suffix
+    if suffix then
+        local base = suffix:match("^(Dur[1-6])") or suffix:match("^(Mol[1-4])")
+        if base then
+            return "Tile - " .. base
+        end
     end
     return ""
 end
