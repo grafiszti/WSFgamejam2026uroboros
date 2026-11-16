@@ -110,6 +110,7 @@ function BottomScreenUI:Create()
     self.playback = nil
     self.gameComplete = false
     self.pausedByGame = false
+    self.endingRequested = false
     self.trayFullWarned = false
     self.lastTapStone = nil
     self.lastTapTime = -1.0
@@ -345,6 +346,7 @@ function BottomScreenUI:Start()
     self.playback = nil
     self.gameComplete = false
     self.pausedByGame = false
+    self.endingRequested = false
     self.trayFullWarned = false
     self.lastTapStone = nil
     self.lastTapTime = -1.0
@@ -795,8 +797,11 @@ function BottomScreenUI:UpdatePlayback(dt)
         playback.timer = self.noteInterval
     else
         self.playback = nil
-        self.pausedByGame = true
-        Engine.SetPaused(true)
+        if not self.endingRequested then
+            self.endingRequested = true
+            SignalBus.Emit("EndingRequested")
+            Log.Debug("BottomScreenUI: ending requested")
+        end
     end
 end
 
@@ -1037,6 +1042,7 @@ function BottomScreenUI:Stop()
     self.dragStone = nil
     self.playback = nil
     self.gameComplete = false
+    self.endingRequested = false
     self.lastTapStone = nil
     self.lastTapTime = -1.0
     self.clickSparks = {}

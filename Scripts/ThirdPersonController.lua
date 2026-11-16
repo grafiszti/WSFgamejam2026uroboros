@@ -16,6 +16,39 @@ local kGroundNormalDot = 0.5
 local kGroundTweenDot = 0.999
 local kGroundRecoveryFrames = 3
 
+local kEndingSignal = "EndingRequested"
+local kEndingScene = "SC_Title"
+local kEndingAnimation = "Boop"
+local kEndingAnimationTimeout = 2.0
+local kEndingFreezeHold = 0.25
+local kEndingFadeDuration = 1.2
+local kEndingHoldDuration = 0.2
+
+local function CreateWhiteOutOverlay(canvas)
+    if not canvas then
+        return nil
+    end
+
+    local overlay = canvas:CreateChild("Quad")
+    if not overlay then
+        return nil
+    end
+
+    local resolution = canvas:GetScreenResolution()
+    if resolution == nil or resolution.x <= 0.0 or resolution.y <= 0.0 then
+        resolution = Vec(400.0, 240.0, 0.0)
+    end
+
+    overlay:SetName("EndingWhiteOut")
+    overlay:SetPosition(0.0, 0.0)
+    overlay:SetDimensions(resolution.x, resolution.y)
+    overlay:SetTexture(nil)
+    overlay:SetColor(Vec(1.0, 1.0, 1.0, 1.0))
+    overlay:SetOpacityFloat(0.0)
+    overlay:SetVisible(true)
+    return overlay
+end
+
 function ThirdPersonController:Create()
     -- Properties
     self.collider = nil
@@ -59,6 +92,18 @@ function ThirdPersonController:Create()
     self.groundMissFrames = 0
     self.groundLost = false
     self.groundHitLogged = false
+    self.EndingAnimation = kEndingAnimation
+    self.ending = false
+    self.endingSprite = nil
+    self.endingTopOverlay = nil
+    self.endingBottomOverlay = nil
+    self.endingAnimTimer = 0.0
+    self.endingFreezeTimer = 0.0
+    self.endingFadeStarted = false
+    self.endingFadeTimer = 0.0
+    self.endingHoldTimer = 0.0
+    self.endingRedirected = false
+    self.subscribedEnding = false
 end
 
 function ThirdPersonController:GatherProperties()
@@ -74,6 +119,7 @@ function ThirdPersonController:GatherProperties()
         { name = "enableControl",     type = DatumType.Bool },
         { name = "enableFollowCam",   type = DatumType.Bool },
         { name = "enableCameraTrace", type = DatumType.Bool },
+        { name = "EndingAnimation",   type = DatumType.String },
         { name = "DirLight",          type = DatumType.Node },
         { name = "Music",             type = DatumType.Asset },
         { name = "AnimatedSprite",    type = DatumType.Node },
@@ -123,6 +169,21 @@ function ThirdPersonController:Start()
     self.groundMissFrames = 0
     self.groundLost = false
     self.groundHitLogged = false
+
+    if self.EndingAnimation == nil or self.EndingAnimation == "" then
+        self.EndingAnimation = kEndingAnimation
+    end
+    self.ending = false
+    self.endingSprite = nil
+    self.endingTopOverlay = nil
+    self.endingBottomOverlay = nil
+    self.endingAnimTimer = 0.0
+    self.endingFreezeTimer = 0.0
+    self.endingFadeStarted = false
+    self.endingFadeTimer = 0.0
+    self.endingHoldTimer = 0.0
+    self.endingRedirected = false
+
     if self.subscribedStun then
         SignalBus.Unsubscribe("PlayerStunned", self)
     end
@@ -134,6 +195,12 @@ function ThirdPersonController:Start()
     end
     SignalBus.Subscribe("GameCompleted", self, ThirdPersonController.OnGameCompleted)
     self.subscribedComplete = true
+
+    if self.subscribedEnding then
+        SignalBus.Unsubscribe(kEndingSignal, self)
+    end
+    SignalBus.Subscribe(kEndingSignal, self, ThirdPersonController.OnEndingRequested)
+    self.subscribedEnding = true
 
     self.consoleVisible = false
     Renderer.EnableConsole(false)
@@ -175,6 +242,108 @@ function ThirdPersonController:OnGameCompleted()
     Log.Debug("ThirdPersonController: game complete")
 end
 
+function ThirdPersonController:OnEndingRequested()
+    if self.ending then
+        return
+    end
+
+    self.ending = true
+    self.enableControl = false
+    self.moveDir.x = 0.0
+    self.moveDir.y = 0.0
+    self.moveDir.z = 0.0
+    self.stunTimer = 0.0
+    self.endingAnimTimer = 0.0
+    self.endingFreezeTimer = 0.0
+    self:StopFootsteps()
+
+    if self.tweenID then
+        Tween.Cancel(self.tweenID)
+        self.tweenID = nil
+    end
+
+    if self.Music then
+        Audio.StopSounds(self.Music)
+    end
+
+    local world = self:GetWorld()
+    if not world then
+        return
+    end
+
+    self.endingSprite = self.AnimatedSprite
+    if not self.endingSprite then
+        self.endingSprite = world:FindNode("AnimatedSprite3D")
+    end
+    if self.endingSprite then
+        self.endingSprite:PlayAnimation(self.EndingAnimation)
+    end
+
+    self.endingTopOverlay = CreateWhiteOutOverlay(world:FindNode("Canvas_UI"))
+    self.endingBottomOverlay = CreateWhiteOutOverlay(world:FindNode("BottomScreenCanvas"))
+    Log.Debug("ThirdPersonController: ending started")
+end
+
+function ThirdPersonController:SetEndingOverlayOpacity(opacity)
+    if self.endingTopOverlay then
+        self.endingTopOverlay:SetOpacityFloat(opacity)
+    end
+    if self.endingBottomOverlay then
+        self.endingBottomOverlay:SetOpacityFloat(opacity)
+    end
+end
+
+function ThirdPersonController:UpdateEnding(deltaTime)
+    local dt = math.min(Engine.GetRealDeltaTime(), 0.1)
+    if dt <= 0.0 then
+        dt = math.min(deltaTime, 0.1)
+    end
+    if dt <= 0.0 then
+        return
+    end
+
+    self.endingAnimTimer = self.endingAnimTimer + dt
+
+    if not self.endingFadeStarted then
+        local waiting = false
+        if self.endingSprite and self.endingSprite.IsPlaying then
+            local animName = nil
+            if self.endingSprite.GetCurrentAnimationName then
+                animName = self.endingSprite:GetCurrentAnimationName()
+            end
+            waiting = (animName == self.EndingAnimation) and self.endingSprite:IsPlaying()
+        end
+
+        if waiting and self.endingAnimTimer < kEndingAnimationTimeout then
+            return
+        end
+
+        self.endingFreezeTimer = self.endingFreezeTimer + dt
+        if self.endingFreezeTimer < kEndingFreezeHold then
+            return
+        end
+
+        self.endingFadeStarted = true
+        self.endingFadeTimer = 0.0
+        self:SetEndingOverlayOpacity(0.0)
+    end
+
+    self.endingFadeTimer = self.endingFadeTimer + dt
+    local t = math.min(1.0, self.endingFadeTimer / kEndingFadeDuration)
+    self:SetEndingOverlayOpacity(t)
+
+    if t >= 1.0 then
+        self.endingHoldTimer = self.endingHoldTimer + dt
+        if self.endingHoldTimer >= kEndingHoldDuration and not self.endingRedirected then
+            self.endingRedirected = true
+            local world = self:GetWorld()
+            if world then
+                world:LoadScene(kEndingScene, false)
+            end
+        end
+    end
+end
+
 function ThirdPersonController:Stop()
     if self.Music then
         Audio.StopSounds(self.Music)
@@ -189,6 +358,10 @@ function ThirdPersonController:Stop()
         SignalBus.Unsubscribe("GameCompleted", self)
         self.subscribedComplete = false
     end
+    if self.subscribedEnding then
+        SignalBus.Unsubscribe(kEndingSignal, self)
+        self.subscribedEnding = false
+    end
     self.stunTimer = 0.0
 
     if self.tweenID then
@@ -197,12 +370,22 @@ function ThirdPersonController:Stop()
     end
     self.groundMissFrames = 0
     self.groundLost = false
+    self.ending = false
+    self.endingSprite = nil
+    self.endingTopOverlay = nil
+    self.endingBottomOverlay = nil
+    self.endingRedirected = false
 
     Renderer.EnableConsole(false)
     self.consoleVisible = false
 end
 
 function ThirdPersonController:Tick(deltaTime)
+    if self.ending then
+        self:UpdateEnding(deltaTime)
+        return
+    end
+
     self:UpdateDebugConsoleToggle()
 
     if self.stunTimer <= 0.0 and
@@ -258,6 +441,10 @@ function ThirdPersonController:StopFootsteps()
 end
 
 function ThirdPersonController:UpdateAnimation()
+    if self.ending then
+        return
+    end
+
     if self.currentAnimation == "Boop" and self.stunTimer > 0.0 then
         return
     end
