@@ -1,3 +1,6 @@
+Script.Load("Core/Events")
+Script.Load("Core/GameSession")
+
 DayNightCycle = {}
 
 DayNightCycle.isDay = true
@@ -46,6 +49,7 @@ function DayNightCycle:Start()
     self.isDay = true
     self.emitted = false
     DayNightCycle.isDay = true
+    GameSession.SetDay(true)
 
     self.dayLight = nil
     self.nightLight = nil
@@ -135,6 +139,10 @@ function DayNightCycle:ApplyState()
 end
 
 function DayNightCycle:Tick(deltaTime)
+    if not GameSession.IsPlaying() then
+        return
+    end
+
     local dt = math.min(deltaTime, 0.5)
     if dt <= 0.0 then
         return
@@ -146,6 +154,7 @@ function DayNightCycle:Tick(deltaTime)
     local wasDay = self.isDay
     self.isDay = self.elapsed < self.DayDuration
     DayNightCycle.isDay = self.isDay
+    GameSession.SetDay(self.isDay)
 
     if self.nightLight and self.dayLight then
         self.nightLight:SetRotation(self.dayLight:GetRotation())
@@ -158,10 +167,11 @@ function DayNightCycle:Tick(deltaTime)
 
     if changed or not self.emitted then
         self.emitted = true
-        SignalBus.Emit("DayNightChanged", self.isDay)
+        SignalBus.Emit(Events.DAY_NIGHT_CHANGED, self.isDay)
     end
 end
 
 function DayNightCycle:Stop()
     DayNightCycle.isDay = true
+    GameSession.SetDay(true)
 end

@@ -1,3 +1,5 @@
+Script.Load("Core/Events")
+
 MotionShake = {}
 
 local EPSILON = 0.0001
@@ -56,6 +58,13 @@ function MotionShake:GatherProperties()
 end
 
 function MotionShake:Start()
+    self.upThreshold = math.max(EPSILON, self.upThreshold or 0.15)
+    self.releaseThreshold = math.max(0.0, self.releaseThreshold or 0.05)
+    self.cooldown = math.max(0.0, self.cooldown or 0.45)
+    self.smoothing = math.max(0.1, self.smoothing or 12.0)
+    self.calibrationTime = math.max(0.0, self.calibrationTime or 0.30)
+    self.gyroThreshold = math.max(0.0, self.gyroThreshold or 1.5)
+
     self.accelX = 0.0
     self.accelY = 0.0
     self.accelZ = 0.0
@@ -69,7 +78,7 @@ function MotionShake:Start()
     self.gyroY = 0.0
     self.gyroZ = 0.0
     self.hasGravity = false
-    self.calibrationTimer = math.max(0.0, self.calibrationTime)
+    self.calibrationTimer = self.calibrationTime
     self.cooldownTimer = 0.0
     self.armed = false
     self.shakePending = false
@@ -80,6 +89,10 @@ function MotionShake:Start()
     if self.enableButtonFallback then
         Log.Debug("MotionShake: debug shake on Gamepad.Y / Gamepad.Select / G")
     end
+end
+
+function MotionShake:IsEnabled()
+    return self.enabled
 end
 
 function MotionShake:GetIntensity()
@@ -164,6 +177,18 @@ end
 
 function MotionShake:Tick(deltaTime)
     if not self.enabled then
+        self.accelX = 0.0
+        self.accelY = 0.0
+        self.accelZ = 0.0
+        self.linearX = 0.0
+        self.linearY = 0.0
+        self.linearZ = 0.0
+        self.gravityX = 0.0
+        self.gravityY = 0.0
+        self.gravityZ = 0.0
+        self.gyroX = 0.0
+        self.gyroY = 0.0
+        self.gyroZ = 0.0
         self.intensity = 0.0
         return
     end
@@ -174,9 +199,14 @@ function MotionShake:Tick(deltaTime)
     end
 
     local accel = Input.GetGamepadAcceleration(1)
-    local ax = accel.x or 0.0
-    local ay = accel.y or 0.0
-    local az = accel.z or 0.0
+    local ax = 0.0
+    local ay = 0.0
+    local az = 0.0
+    if accel then
+        ax = accel.x or 0.0
+        ay = accel.y or 0.0
+        az = accel.z or 0.0
+    end
     self.accelX = ax
     self.accelY = ay
     self.accelZ = az
@@ -254,16 +284,18 @@ function MotionShake:Tick(deltaTime)
     if fire then
         if self.useGyro then
             local gyro = Input.GetGamepadGyro(1)
-            local gx = gyro.x or 0.0
-            local gy = gyro.y or 0.0
-            local gz = gyro.z or 0.0
-            self.gyroX = gx
-            self.gyroY = gy
-            self.gyroZ = gz
-            local gyroLength = math.sqrt(gx * gx + gy * gy + gz * gz)
-            if gyroLength > self.gyroThreshold and not debugPressed then
-                self.intensity = 0.0
-                return
+            if gyro then
+                local gx = gyro.x or 0.0
+                local gy = gyro.y or 0.0
+                local gz = gyro.z or 0.0
+                self.gyroX = gx
+                self.gyroY = gy
+                self.gyroZ = gz
+                local gyroLength = math.sqrt(gx * gx + gy * gy + gz * gz)
+                if gyroLength > self.gyroThreshold and not debugPressed then
+                    self.intensity = 0.0
+                    return
+                end
             end
         end
 
@@ -271,7 +303,7 @@ function MotionShake:Tick(deltaTime)
         self.shakePending = true
         self.intensity = 1.0
         Log.Debug("MotionShake: fire debug=" .. tostring(debugPressed) .. " up=" .. tostring(upImpulse))
-        SignalBus.Emit("ShakeDetected", 1.0)
+        SignalBus.Emit(Events.SHAKE_DETECTED, 1.0)
     end
 
     if not self.armed and self.cooldownTimer <= 0.0 and upImpulse < self.releaseThreshold then

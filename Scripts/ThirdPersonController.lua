@@ -1,56 +1,21 @@
--- [Script hierarchy]
---   Root (Primitive3D)
---     Camera (Camera3D)
---     Controller (Node, with this script)
+Script.Load("Core/Events")
+Script.Load("Core/CollisionLayers")
+Script.Load("Core/SurfaceMath")
+Script.Load("Core/GameSession")
+Script.Load("Core/GameActions")
+Script.Load("Systems/PlanetLocomotion")
+Script.Load("Systems/PlayerVisuals")
+Script.Load("Systems/PlayerFootsteps")
+Script.Load("Systems/ThirdPersonCamera")
+Script.Load("Systems/EndingSequence")
 
 ThirdPersonController = {}
 
 ThirdPersonController.kGroundingDot = 0.9
 
-local kEnvironmentMask = 0x02
-local kStoneGroup = 0x08
-local kSolidMask = kEnvironmentMask + kStoneGroup
-local kGroundProbeDistance = 5.0
-local kGroundSnapPadding = 0.002
-local kGroundNormalDot = 0.5
-local kGroundTweenDot = 0.999
-local kGroundRecoveryFrames = 3
-
-local kEndingSignal = "EndingRequested"
-local kEndingScene = "SC_Title"
 local kEndingAnimation = "Boop"
-local kEndingAnimationTimeout = 2.0
-local kEndingFreezeHold = 0.25
-local kEndingFadeDuration = 1.2
-local kEndingHoldDuration = 0.2
-
-local function CreateWhiteOutOverlay(canvas)
-    if not canvas then
-        return nil
-    end
-
-    local overlay = canvas:CreateChild("Quad")
-    if not overlay then
-        return nil
-    end
-
-    local resolution = canvas:GetScreenResolution()
-    if resolution == nil or resolution.x <= 0.0 or resolution.y <= 0.0 then
-        resolution = Vec(400.0, 240.0, 0.0)
-    end
-
-    overlay:SetName("EndingWhiteOut")
-    overlay:SetPosition(0.0, 0.0)
-    overlay:SetDimensions(resolution.x, resolution.y)
-    overlay:SetTexture(nil)
-    overlay:SetColor(Vec(1.0, 1.0, 1.0, 1.0))
-    overlay:SetOpacityFloat(0.0)
-    overlay:SetVisible(true)
-    return overlay
-end
 
 function ThirdPersonController:Create()
-    -- Properties
     self.collider = nil
     self.camera = nil
     self.cameraPivot = nil
@@ -69,7 +34,6 @@ function ThirdPersonController:Create()
     self.footstepSounds3 = nil
     self.footstepSounds4 = nil
 
-    -- State
     self.moveDir = Vec(0, 0, 0)
     self.currentAnimation = nil
     self.meshFlipped = false
@@ -131,23 +95,24 @@ function ThirdPersonController:GatherProperties()
 end
 
 function ThirdPersonController:Start()
+    self.cameraDistance = math.max(1.0, self.cameraDistance or 10.0)
+    self.moveSpeed = math.max(0.0, self.moveSpeed or 7.0)
+    self.followCamHeight = self.followCamHeight or 4.0
+
     if self.Music then
         Audio.Play(self.Music, 1.0, 1.0, 0.0, true)
     end
 
-    self.footstepSounds = {
-        self.footstepSounds1,
-        self.footstepSounds2,
-        self.footstepSounds3,
-        self.footstepSounds4
-    }
+    PlayerFootsteps.Build(self)
 
-    if (not self.collider) then
+    if not self.collider then
         self.collider = self:GetParent()
     end
-    self.collider:AddTag("Controller")
+    if self.collider then
+        self.collider:AddTag("Controller")
+    end
 
-    if (not self.camera) then
+    if not self.camera and self.collider then
         self.camera = self.collider:FindChild("Camera", true)
     end
 
@@ -164,8 +129,11 @@ function ThirdPersonController:Start()
     end
 
     self.stunTimer = 0.0
-    self.lastNormal = self.collider:GetUpVector():Normalize()
-    self.lastValidGroundPos = self.collider:GetWorldPosition()
+    if self.collider then
+        self.lastNormal = SurfaceMath.SafeNormalize(self.collider:GetUpVector(), Vec(0.0, 1.0, 0.0))
+        self.lastValidGroundPos = self.collider:GetWorldPosition()
+        self.tweenTarget = self.collider:GetRotation()
+    end
     self.groundMissFrames = 0
     self.groundLost = false
     self.groundHitLogged = false
@@ -184,22 +152,25 @@ function ThirdPersonController:Start()
     self.endingHoldTimer = 0.0
     self.endingRedirected = false
 
+    GameSession.Reset()
+    GameSession.SetPhase(GameSession.PHASE_PLAYING)
+
     if self.subscribedStun then
-        SignalBus.Unsubscribe("PlayerStunned", self)
+        SignalBus.Unsubscribe(Events.PLAYER_STUNNED, self)
     end
-    SignalBus.Subscribe("PlayerStunned", self, ThirdPersonController.OnPlayerStunned)
+    SignalBus.Subscribe(Events.PLAYER_STUNNED, self, ThirdPersonController.OnPlayerStunned)
     self.subscribedStun = true
 
     if self.subscribedComplete then
-        SignalBus.Unsubscribe("GameCompleted", self)
+        SignalBus.Unsubscribe(Events.GAME_COMPLETED, self)
     end
-    SignalBus.Subscribe("GameCompleted", self, ThirdPersonController.OnGameCompleted)
+    SignalBus.Subscribe(Events.GAME_COMPLETED, self, ThirdPersonController.OnGameCompleted)
     self.subscribedComplete = true
 
     if self.subscribedEnding then
-        SignalBus.Unsubscribe(kEndingSignal, self)
+        SignalBus.Unsubscribe(Events.ENDING_REQUESTED, self)
     end
-    SignalBus.Subscribe(kEndingSignal, self, ThirdPersonController.OnEndingRequested)
+    SignalBus.Subscribe(Events.ENDING_REQUESTED, self, ThirdPersonController.OnEndingRequested)
     self.subscribedEnding = true
 
     self.consoleVisible = false
@@ -235,7 +206,10 @@ end
 
 function ThirdPersonController:OnGameCompleted()
     self.enableControl = false
-    self.moveDir = Vec(0, 0, 0)
+    self.moveDir.x = 0.0
+    self.moveDir.y = 0.0
+    self.moveDir.z = 0.0
+    GameSession.SetPhase(GameSession.PHASE_ENDING)
     if self.Music then
         Audio.StopSounds(self.Music)
     end
@@ -243,123 +217,25 @@ function ThirdPersonController:OnGameCompleted()
 end
 
 function ThirdPersonController:OnEndingRequested()
-    if self.ending then
-        return
-    end
-
-    self.ending = true
-    self.enableControl = false
-    self.moveDir.x = 0.0
-    self.moveDir.y = 0.0
-    self.moveDir.z = 0.0
-    self.stunTimer = 0.0
-    self.endingAnimTimer = 0.0
-    self.endingFreezeTimer = 0.0
-    self:StopFootsteps()
-
-    if self.tweenID then
-        Tween.Cancel(self.tweenID)
-        self.tweenID = nil
-    end
-
-    if self.Music then
-        Audio.StopSounds(self.Music)
-    end
-
-    local world = self:GetWorld()
-    if not world then
-        return
-    end
-
-    self.endingSprite = self.AnimatedSprite
-    if not self.endingSprite then
-        self.endingSprite = world:FindNode("AnimatedSprite3D")
-    end
-    if self.endingSprite then
-        self.endingSprite:PlayAnimation(self.EndingAnimation)
-    end
-
-    self.endingTopOverlay = CreateWhiteOutOverlay(world:FindNode("Canvas_UI"))
-    self.endingBottomOverlay = CreateWhiteOutOverlay(world:FindNode("BottomScreenCanvas"))
-    Log.Debug("ThirdPersonController: ending started")
-end
-
-function ThirdPersonController:SetEndingOverlayOpacity(opacity)
-    if self.endingTopOverlay then
-        self.endingTopOverlay:SetOpacityFloat(opacity)
-    end
-    if self.endingBottomOverlay then
-        self.endingBottomOverlay:SetOpacityFloat(opacity)
-    end
-end
-
-function ThirdPersonController:UpdateEnding(deltaTime)
-    local dt = math.min(Engine.GetRealDeltaTime(), 0.1)
-    if dt <= 0.0 then
-        dt = math.min(deltaTime, 0.1)
-    end
-    if dt <= 0.0 then
-        return
-    end
-
-    self.endingAnimTimer = self.endingAnimTimer + dt
-
-    if not self.endingFadeStarted then
-        local waiting = false
-        if self.endingSprite and self.endingSprite.IsPlaying then
-            local animName = nil
-            if self.endingSprite.GetCurrentAnimationName then
-                animName = self.endingSprite:GetCurrentAnimationName()
-            end
-            waiting = (animName == self.EndingAnimation) and self.endingSprite:IsPlaying()
-        end
-
-        if waiting and self.endingAnimTimer < kEndingAnimationTimeout then
-            return
-        end
-
-        self.endingFreezeTimer = self.endingFreezeTimer + dt
-        if self.endingFreezeTimer < kEndingFreezeHold then
-            return
-        end
-
-        self.endingFadeStarted = true
-        self.endingFadeTimer = 0.0
-        self:SetEndingOverlayOpacity(0.0)
-    end
-
-    self.endingFadeTimer = self.endingFadeTimer + dt
-    local t = math.min(1.0, self.endingFadeTimer / kEndingFadeDuration)
-    self:SetEndingOverlayOpacity(t)
-
-    if t >= 1.0 then
-        self.endingHoldTimer = self.endingHoldTimer + dt
-        if self.endingHoldTimer >= kEndingHoldDuration and not self.endingRedirected then
-            self.endingRedirected = true
-            local world = self:GetWorld()
-            if world then
-                world:LoadScene(kEndingScene, false)
-            end
-        end
-    end
+    EndingSequence.Begin(self)
 end
 
 function ThirdPersonController:Stop()
     if self.Music then
         Audio.StopSounds(self.Music)
     end
-    self:StopFootsteps()
+    PlayerFootsteps.Stop(self)
 
     if self.subscribedStun then
-        SignalBus.Unsubscribe("PlayerStunned", self)
+        SignalBus.Unsubscribe(Events.PLAYER_STUNNED, self)
         self.subscribedStun = false
     end
     if self.subscribedComplete then
-        SignalBus.Unsubscribe("GameCompleted", self)
+        SignalBus.Unsubscribe(Events.GAME_COMPLETED, self)
         self.subscribedComplete = false
     end
     if self.subscribedEnding then
-        SignalBus.Unsubscribe(kEndingSignal, self)
+        SignalBus.Unsubscribe(Events.ENDING_REQUESTED, self)
         self.subscribedEnding = false
     end
     self.stunTimer = 0.0
@@ -370,309 +246,35 @@ function ThirdPersonController:Stop()
     end
     self.groundMissFrames = 0
     self.groundLost = false
-    self.ending = false
-    self.endingSprite = nil
-    self.endingTopOverlay = nil
-    self.endingBottomOverlay = nil
-    self.endingRedirected = false
+    EndingSequence.Stop(self)
 
     Renderer.EnableConsole(false)
     self.consoleVisible = false
 end
 
-function ThirdPersonController:Tick(deltaTime)
-    if self.ending then
-        self:UpdateEnding(deltaTime)
-        return
-    end
-
-    self:UpdateDebugConsoleToggle()
-
-    if self.stunTimer <= 0.0 and
-        (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
-        self:OnPlayerStunned(0.8)
-        if self.AnimatedSprite then
-            self.AnimatedSprite:PlayAnimation("Boop")
-            self.currentAnimation = "Boop"
-        end
-    end
-
-    self:UpdateInput(deltaTime)
-    self:UpdateAnimation()
-    self:UpdateFootsteps(deltaTime)
-    self:NewMove(deltaTime)
-    self:UpdateCamera(deltaTime)
-end
-
 function ThirdPersonController:UpdateDebugConsoleToggle()
-    if Input.IsGamepadPressed(Gamepad.L2) or Input.IsKeyPressed(Key.F1) then
+    if GameActions.ToggleDebugConsolePressed() then
         self.consoleVisible = not self.consoleVisible
         Renderer.EnableConsole(self.consoleVisible)
     end
 end
 
-function ThirdPersonController:UpdateFootsteps(deltaTime)
-    local isWalking = self.currentAnimation == "WalkFront" or self.currentAnimation == "WalkSide"
-    if not isWalking then
-        self:StopFootsteps()
-        return
-    end
-
-    self.footstepTimer = self.footstepTimer - deltaTime
-    if self.footstepTimer <= 0.0 then
-        if self.currentFootstep then
-            Audio.StopSounds(self.currentFootstep)
-        end
-
-        self.currentFootstep = self.footstepSounds[self.footstepIndex]
-        Audio.Play(self.currentFootstep)
-        self.footstepIndex = self.footstepIndex % #self.footstepSounds + 1
-        self.footstepTimer = 0.4
-    end
-end
-
-function ThirdPersonController:StopFootsteps()
-    if self.currentFootstep then
-        Audio.StopSounds(self.currentFootstep)
-        self.currentFootstep = nil
-    end
-    --self.footstepIndex = 1
-    self.footstepTimer = 0.0
-end
-
-function ThirdPersonController:UpdateAnimation()
+function ThirdPersonController:Tick(deltaTime)
     if self.ending then
+        EndingSequence.Update(self, deltaTime)
         return
     end
 
-    if self.currentAnimation == "Boop" and self.stunTimer > 0.0 then
-        return
-    end
+    self:UpdateDebugConsoleToggle()
 
-    local animation = "Idle"
-    local flipSide = true
-    local isMoving = self.moveDir:Magnitude() >= 0.1
-
-    if isMoving then
-        if math.abs(self.moveDir.x) > math.abs(self.moveDir.z) then
-            animation = "WalkSide"
-            flipSide = self.moveDir.x < 0.0
-        else
-            animation = "WalkFront"
-        end
-    end
-
-    if self.AnimatedSprite and animation ~= self.currentAnimation then
-        self.AnimatedSprite:PlayAnimation(animation)
-        self.currentAnimation = animation
-    end
-
-    if self.mesh and self.meshBaseRotation and flipSide ~= self.meshFlipped then
-        local rotation = self.meshBaseRotation
-        self.mesh:SetRotation(Vec(rotation.x, rotation.y + (flipSide and 0.0 or 180.0), rotation.z))
-        self.meshFlipped = flipSide
-    end
-end
-
-function ThirdPersonController:UpdateInput(deltaTime)
-    if self.stunTimer > 0.0 then
-        self.stunTimer = math.max(0.0, self.stunTimer - deltaTime)
-        self.moveDir.x = 0.0
-        self.moveDir.y = 0.0
-        self.moveDir.z = 0.0
-        return
-    end
-
-    if (self.enableControl) then
-        local oldMoveZ = self.moveDir.z
-        -- moveDir
-        self.moveDir = Vec()
-        if (Input.IsKeyDown(Key.A)) then
-            self.moveDir.x = self.moveDir.x + -1.0
-        end
-
-        if (Input.IsKeyDown(Key.D)) then
-            self.moveDir.x = self.moveDir.x + 1.0
-        end
-
-        if (Input.IsKeyDown(Key.W)) then
-            self.moveDir.z = self.moveDir.z + -1.0
-        end
-
-        if (Input.IsKeyDown(Key.S)) then
-            self.moveDir.z = self.moveDir.z + 1.0
-        end
-
-        local leftAxisX = Input.GetGamepadAxis(Gamepad.AxisLX)
-        local leftAxisY = Input.GetGamepadAxis(Gamepad.AxisLY)
-
-        -- Only add analog stick input beyond a deadzone limit
-        if (math.abs(leftAxisX) > 0.1) then
-            self.moveDir.x = self.moveDir.x + leftAxisX
-        end
-        if (math.abs(leftAxisY) > 0.1) then
-            self.moveDir.z = self.moveDir.z - leftAxisY
-        end
-
-        if (self.moveDir.z ~= 0.0 and (Math.Sign(self.moveDir.z) ~= Math.Sign(oldMoveZ) or oldMoveZ == 0.0)) then
-            self.vertMoveChange = true
-        else
-            self.vertMoveChange = false
-        end
-
-        -- Ensure length of moveDir is at most 1.0.
-        local moveMag = self.moveDir:Magnitude()
-        moveMag = math.min(moveMag, 1.0)
-        self.moveDir = self.moveDir:Normalize()
-        self.moveDir = self.moveDir * moveMag
-    else
-        self.moveDir = Vec()
-    end
-end
-
-function ThirdPersonController:NewMove(deltaTime)
-    local dt = math.min(deltaTime, 0.05)
-
-    if (self.vertMoveChange) then
-        self.collider:SetRotation(self.tweenTarget)
-    end
-
-    local moveVector = (self.collider:GetForwardVector() * -self.moveDir.z + self.collider:GetRightVector() * self.moveDir.x)
-
-    if self.lastNormal:Magnitude() > 0.5 then
-        moveVector = moveVector - self.lastNormal * Vector.Dot(moveVector, self.lastNormal)
-    end
-
-    local deltaVec = moveVector * self.moveSpeed * dt
-    for i = 1, 3 do
-        if deltaVec:Magnitude() < 0.0001 then
-            break
-        end
-
-        local startPos = self.collider:GetWorldPosition()
-        local sweepRes = self.collider:SweepToWorldPosition(startPos + deltaVec)
-        if not sweepRes.hitNode then
-            break
-        end
-
-        deltaVec = deltaVec * (1.0 - sweepRes.hitFraction)
-        local into = Vector.Dot(deltaVec, sweepRes.hitNormal)
-        if into < 0.0 then
-            deltaVec = deltaVec - sweepRes.hitNormal * into
-        end
-    end
-
-    local up = self.collider:GetUpVector()
-    local startPos = self.collider:GetWorldPosition() + up * 0.2
-    local endPos = startPos + -up * kGroundProbeDistance
-    local sweepRes = self.collider:SweepToWorldPosition(endPos, kEnvironmentMask, true)
-
-    local grounded = false
-    local hitNormal = sweepRes.hitNormal
-    local normalLength = hitNormal and hitNormal:Magnitude() or 0.0
-    if sweepRes.hitNode and normalLength > 0.0001 then
-        hitNormal = hitNormal / normalLength
-        if Vector.Dot(hitNormal, up) > kGroundNormalDot then
-            grounded = true
-            local snapPos = startPos + (endPos - startPos) * sweepRes.hitFraction + hitNormal * kGroundSnapPadding
-            self.collider:SetWorldPosition(snapPos)
-            self.lastValidGroundPos = snapPos
-            self.groundMissFrames = 0
-            self.groundLost = false
-
-            if not self.groundHitLogged then
-                self.groundHitLogged = true
-                Log.Debug("ThirdPersonController: ground hit " .. sweepRes.hitNode:GetName())
-            end
-
-            if Vector.Dot(hitNormal, self.lastNormal) < kGroundTweenDot then
-                if (self.tweenID) then
-                    Tween.Cancel(self.tweenID)
-                end
-                local angle = Vector.SignedAngle(self.collider:GetUpVector(), hitNormal, self.collider:GetRightVector())
-                self.tweenTarget = self.collider:GetRotation() + (angle * Vec(1, 0, 0))
-                self.tweenID = Tween.Rotation(self.collider, Easing.InOutQuad,
-                    self.tweenTarget, 0.12)
-            end
-            self.lastNormal = hitNormal
-        end
-    end
-
-    if not grounded then
-        self.groundMissFrames = self.groundMissFrames + 1
-        if self.groundMissFrames == 1 then
-            Log.Warning("ThirdPersonController: ground probe missed; holding last valid ground position")
-        end
-
-        if self.groundMissFrames >= kGroundRecoveryFrames then
-            self.collider:SetWorldPosition(self.lastValidGroundPos)
-            if not self.groundLost then
-                self.groundLost = true
-                Log.Warning("ThirdPersonController: restoring player to last valid ground position")
-            end
-        end
-    end
-
-    self.DirLight:LookAt(-self.collider:GetUpVector() * 10 + self.collider:GetForwardVector() * 2)
-end
-
-function ThirdPersonController:UpdateCamera(deltaTime)
-    local kFollowMinDistXZ = 4.0
-
-    if (self.enableFollowCam) then
-        -- Ensure proper attachment in case follow cam is toggled
-        self.camera:Attach(self.world:GetRootNode())
-
-        local colliderPos = self.collider:GetWorldPosition()
-
-        if (Input.IsKeyPressed(Key.Q) or Input.IsGamepadPressed(Gamepad.L1)) then
-            -- Move camera behind player
-            self.camera:SetWorldPosition(colliderPos - self.collider:GetForwardVector() * self.cameraDistance)
-        end
-
-        local deltaPos = self.camera:GetWorldPosition() - colliderPos
-        local deltaPosXZ = Vec(deltaPos.x, 0, deltaPos.z)
-
-        deltaPosXZ.y = 0.0
-
-        local dist = deltaPosXZ:Magnitude()
-
-        if (dist > self.cameraDistance) then
-            deltaPosXZ = deltaPosXZ:Normalize() * self.cameraDistance
-        elseif (dist < kFollowMinDistXZ) then
-            deltaPosXZ = deltaPosXZ:Normalize() * kFollowMinDistXZ
-        end
-
-        deltaPos = Vec(deltaPosXZ.x, self.followCamHeight, deltaPosXZ.z)
-
-        local worldPos = colliderPos + deltaPos
-        self.camera:SetWorldPosition(worldPos)
-        self.camera:LookAt(colliderPos)
-    else
-        -- Ensure proper attachment in case follow cam is toggled
-        self.camera:Attach(self.cameraPivot)
-        self.camera:SetRotation(Vec(0, 0, 0))
-
-        -- Adjust camera distance
-        self.camera:SetPosition(Vec(0, 0, self.cameraDistance))
-    end
-
-    -- Do camera collision tracing
-    if (self.enableCameraTrace) then
-        local rayStart = self.collider:GetWorldPosition()
-        local rayEnd = self.camera:GetWorldPosition()
-        local res = self.world:RayTest(rayStart, rayEnd, kSolidMask)
-
-        if (res.hitNode) then
-            -- The trace hit something, so place the camera at the hit location
-            local pos = Vector.Lerp(rayStart, rayEnd, res.hitFraction)
-            self.camera:SetWorldPosition(pos)
-        end
-    end
+    PlanetLocomotion.UpdateInput(self, deltaTime)
+    PlayerVisuals.Update(self)
+    PlayerFootsteps.Update(self, deltaTime)
+    PlanetLocomotion.Move(self, deltaTime)
+    PlanetLocomotion.AimSun(self)
+    ThirdPersonCamera.Update(self)
 end
 
 function ThirdPersonController:GetCameraYaw()
-    return self.enableFollowCam and
-        self.camera:GetRotation().y or
-        self.cameraPivot:GetRotation().y
+    return ThirdPersonCamera.GetYaw(self)
 end

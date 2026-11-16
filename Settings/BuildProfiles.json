@@ -10,9 +10,9 @@
             "platform": 5,
             "targetId": "polyphase.n3ds.cia",
             "targetOptions": {
-                "n3ds.iconPath": "C:\\msys64\\opt\\wonderful\\thirdparty\\blocksds\\core\\examples\\WSFgamejam2026uroboros\\Assets\\Art\\Ikonka2.oct",
+                "n3ds.iconPath": "Assets/Art/Ikonka2.oct",
                 "cia.bannerMode": "scene",
-                "n3ds.title": "Roibos Song",
+                "n3ds.title": "Roibos",
                 "n3ds.author": "CIA Entertainment",
                 "cia.bannerScene": "Baner",
                 "cia.bannerAudioLoop": "false",
