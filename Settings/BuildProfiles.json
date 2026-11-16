@@ -16,7 +16,7 @@
                 "n3ds.author": "CIA Entertainment",
                 "cia.bannerScene": "Baner",
                 "cia.bannerAudioLoop": "false",
-                "cia.bannerAudio": "Nintrendo-Roibos-SFX"
+                "cia.bannerAudio": ""
             },
             "embedded": true,
             "staticContent": false,
