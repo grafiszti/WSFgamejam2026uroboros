@@ -1,7 +1,14 @@
+Script.Load("Core/Events")
+Script.Load("Core/CollisionLayers")
+Script.Load("Core/RuneCatalog")
+Script.Load("Core/GameSession")
+Script.Load("Core/GameActions")
+Script.Load("Core/PhaseVisibility")
+Script.Load("Core/SurfaceMath")
+
 NoteRockToDestroy = {}
 
-local STONE_COLLISION_GROUP = 8
-local SURFACE_COLLISION_MASK = 0x02
+local SURFACE_COLLISION_MASK = CollisionLayers.Environment
 local REVEAL_SOUND = "Magic-spell-SFF"
 local ROCK_PARTICLE = "RockDestroyParticle"
 local REVEAL_PARTICLE = "StarsDestroyParticle"
@@ -9,13 +16,27 @@ local sRevealSoundWarned = false
 local sRockParticleWarned = false
 local sRevealParticleWarned = false
 
+local function SetCollisionRecursive(node, enabled)
+    if node == nil then
+        return
+    end
+
+    if node:IsA("Primitive3D") then
+        node:EnableCollision(enabled)
+    end
+
+    for i = 1, node:GetNumChildren() do
+        SetCollisionRecursive(node:GetChild(i), enabled)
+    end
+end
+
 local function ApplyStoneCollisionGroup(node)
     if node == nil then
         return
     end
 
     if node:IsA("Primitive3D") then
-        node:SetCollisionGroup(STONE_COLLISION_GROUP)
+        node:SetCollisionGroup(CollisionLayers.Stone)
         node:EnableOverlaps(false)
     end
 
@@ -25,38 +46,11 @@ local function ApplyStoneCollisionGroup(node)
     end
 end
 
-local function DeriveRuneArt(nodeName)
-    if nodeName == nil then
-        return ""
-    end
-
-    local suffix = nil
-    if nodeName:sub(1, 4) == "Rock" then
-        suffix = nodeName:sub(5)
-    elseif nodeName:sub(1, 3) == "SM_" then
-        local candidate = nodeName:sub(4)
-        if candidate:sub(1, 7) == "Tile - " then
-            suffix = candidate:sub(8)
-        end
-    end
-
-    if suffix then
-        local base = suffix:match("^(Dur[1-6])") or suffix:match("^(Mol[1-4])")
-        if base then
-            return "Tile - " .. base
-        end
-    end
-    return ""
-end
-
 function NoteRockToDestroy:Create()
     self.NoteNode = nil
     self.PlayerInProx = false
-    local myPos = self:GetWorldPosition()
-    myPos.y = 0
-    myPos.z = 0
-    self.hiddenPos = self:GetPosition() + (myPos - self:GetWorldPosition()):Normalize3() * 2;
-    self.showPos = self:GetPosition()
+    self.hiddenPos = Vec()
+    self.showPos = Vec()
     self.HitsRequired = 1
     self.ProximityRadius = 3.5
     self.SurfaceClearance = 1.25
@@ -74,6 +68,7 @@ function NoteRockToDestroy:Create()
     self.hitsRemaining = 1
     self.baseScale = nil
     self.punchTween = nil
+    self.moveTween = nil
     self.revealed = false
     self.isNightStone = false
     self.phaseVisible = true
@@ -105,10 +100,11 @@ function NoteRockToDestroy:Start()
     self.SnapDistance = math.max(0.5, self.SnapDistance or 12.0)
     self.baseScale = self:GetScale()
     self.punchTween = nil
+    self.moveTween = nil
     self.revealed = false
 
     if self.RuneArt == nil or self.RuneArt == "" then
-        self.RuneArt = DeriveRuneArt(self:GetName())
+        self.RuneArt = RuneCatalog.ArtForNode(self:GetName())
     end
 
     self.RevealVolume = math.max(0.0, self.RevealVolume or 0.5)
@@ -158,22 +154,24 @@ function NoteRockToDestroy:Start()
     self.player = world and world:FindNode("ThirdPersonPlayer") or nil
 
     self.showPos = self:GetPosition()
-    self.hiddenPos = self.showPos - self:GetUpVector() * 2.0
+    local up = SurfaceMath.SafeNormalize(self:GetUpVector(), Vec(0.0, 1.0, 0.0))
+    self.hiddenPos = self.showPos - up * 2.0
 
-    self.isNightStone = self:GetName():find("Mol", 1, true) ~= nil
+    self.isNightStone = RuneCatalog.IsNight(self.RuneArt)
     self.phaseVisible = true
 
     if self.subscribedDayNight then
-        SignalBus.Unsubscribe("DayNightChanged", self)
+        SignalBus.Unsubscribe(Events.DAY_NIGHT_CHANGED, self)
     end
-    SignalBus.Subscribe("DayNightChanged", self, NoteRockToDestroy.OnDayNightChanged)
+    SignalBus.Subscribe(Events.DAY_NIGHT_CHANGED, self, NoteRockToDestroy.OnDayNightChanged)
     self.subscribedDayNight = true
 
-    local isDay = true
+    local isDay = GameSession.IsDay()
     if DayNightCycle and DayNightCycle.isDay ~= nil then
         isDay = DayNightCycle.isDay
+        GameSession.SetDay(isDay)
     end
-    local show = (self.isNightStone and not isDay) or (not self.isNightStone and isDay)
+    local show = PhaseVisibility.ShouldShow(self.isNightStone, isDay)
     self:SetPhaseVisible(show, true)
 end
 
@@ -215,12 +213,8 @@ function NoteRockToDestroy:UpdatePlayerProximity()
         return
     end
 
-    local rockPos = self:GetWorldPosition()
-    local playerPos = self.player:GetWorldPosition()
-    local dx = rockPos.x - playerPos.x
-    local dy = rockPos.y - playerPos.y
-    local dz = rockPos.z - playerPos.z
-    self.PlayerInProx = (dx * dx + dy * dy + dz * dz) <= self.proximityRadiusSq
+    self.PlayerInProx = SurfaceMath.SquaredDistance(self:GetWorldPosition(),
+        self.player:GetWorldPosition()) <= self.proximityRadiusSq
 end
 
 function NoteRockToDestroy:GetSurfaceUp()
@@ -229,15 +223,11 @@ function NoteRockToDestroy:GetSurfaceUp()
         up = self.player:GetUpVector()
     end
 
-    if up == nil or up:Magnitude() < 0.0001 then
+    if up == nil then
         up = self:GetUpVector()
     end
 
-    if up == nil or up:Magnitude() < 0.0001 then
-        return Vec(0, 1, 0)
-    end
-
-    return up:Normalize()
+    return SurfaceMath.SafeNormalize(up, Vec(0.0, 1.0, 0.0))
 end
 
 function NoteRockToDestroy:SnapNoteAboveSurface()
@@ -260,15 +250,9 @@ function NoteRockToDestroy:SnapNoteAboveSurface()
     if result and result.hitNode then
         local height = Vector.Dot(notePos - result.hitPosition, up)
         if height < self.SurfaceClearance then
-            local normal = result.hitNormal
-            local normalLength = normal and normal:Magnitude() or 0.0
-            if normalLength < 0.0001 then
-                normal = up
-            else
-                normal = normal / normalLength
-                if Vector.Dot(normal, up) < 0.0 then
-                    normal = normal * -1.0
-                end
+            local normal = SurfaceMath.SafeNormalize(result.hitNormal, up)
+            if Vector.Dot(normal, up) < 0.0 then
+                normal = normal * -1.0
             end
             self.NoteNode:SetWorldPosition(result.hitPosition + normal * self.SurfaceClearance)
         end
@@ -281,63 +265,83 @@ function NoteRockToDestroy:Tick(deltaTime)
         return
     end
 
+    if not GameSession.IsPlaying() then
+        self.PlayerInProx = false
+        return
+    end
+
     self:UpdatePlayerProximity()
 
-    if (self.PlayerInProx) then
-        if (Input.IsKeyPressed(Key.E) or Input.IsGamepadPressed(Gamepad.A)) then
-            self:Hide()
-            if not self.NoteNode then
-                Log.Warning("NoteRockToDestroy: missing NoteNode")
-                return
-            end
+    if not self.PlayerInProx or not GameActions.MinePressed() then
+        return
+    end
 
-            if self.NoteNode:IsDestroyed() or self.NoteNode:IsPendingDestroy() then
-                Log.Warning("NoteRockToDestroy: NoteNode is no longer valid; removing rock")
-                self:DestroyDeferred()
-                return
-            end
+    if not self.NoteNode then
+        Log.Warning("NoteRockToDestroy: missing NoteNode")
+        return
+    end
 
-            local world = self:GetWorld()
-            if not world then
-                return
-            end
+    if self.NoteNode:IsDestroyed() or self.NoteNode:IsPendingDestroy() then
+        Log.Warning("NoteRockToDestroy: NoteNode is no longer valid; removing rock")
+        self:DestroyDeferred()
+        return
+    end
 
-            self.hitsRemaining = self.hitsRemaining - 1
+    local world = self:GetWorld()
+    if not world then
+        return
+    end
 
-            if self.hitsRemaining > 0 then
-                self:PlayHitFeedback()
-                self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
-                SignalBus.Emit("RuneMined", self.hitsRemaining)
-                return
-            end
+    self.hitsRemaining = self.hitsRemaining - 1
 
-            self.revealed = true
-            self.NoteNode:Attach(world:GetRootNode(), true)
-            self:SnapNoteAboveSurface()
-            self.NoteNode:SetActive(true)
-            self.NoteNode:SetVisible(true)
-            self.NoteNode:Start()
-            self.NoteNode:AddTag("RevealedRune")
-            self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
-            self:SpawnParticleBurst(self.revealParticle, self.NoteNode:GetWorldPosition())
-            SignalBus.Emit("RuneMined", 0)
-            SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
-            if self.RevealSound then
-                Audio.StopSounds(self.RevealSound)
-                Audio.PlaySound2D(self.RevealSound, self.RevealVolume, 1.0)
-            end
-            self:Hide(true)
-        end
+    if self.hitsRemaining > 0 then
+        self:PlayHitFeedback()
+        self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
+        SignalBus.Emit(Events.RUNE_MINED, self.hitsRemaining)
+        return
+    end
+
+    self.revealed = true
+    self.NoteNode:Attach(world:GetRootNode(), true)
+    self:SnapNoteAboveSurface()
+    self.NoteNode:SetActive(true)
+    self.NoteNode:SetVisible(true)
+    self.NoteNode:AddTag("RevealedRune")
+
+    local revealTag = "RevealedBy_" .. self:GetName()
+    self.NoteNode:AddTag(revealTag)
+
+    self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
+    self:SpawnParticleBurst(self.revealParticle, self.NoteNode:GetWorldPosition())
+    SignalBus.Emit(Events.RUNE_MINED, 0)
+    SignalBus.Emit(Events.RUNE_REVEALED, self.NoteNode:GetName(), self.RuneArt, revealTag)
+
+    if self.RevealSound then
+        Audio.StopSounds(self.RevealSound)
+        Audio.PlaySound2D(self.RevealSound, self.RevealVolume, 1.0)
+    end
+
+    self:Hide(true)
+end
+
+function NoteRockToDestroy:CancelMoveTween()
+    if self.moveTween then
+        Tween.Cancel(self.moveTween)
+        self.moveTween = nil
     end
 end
 
 function NoteRockToDestroy:Hide(fast)
-    local dur = 1.0
-    if (fast) then
-        dur = 0.24
+    self:CancelMoveTween()
+    SetCollisionRecursive(self, false)
+
+    local duration = 1.0
+    if fast then
+        duration = 0.24
     end
-    self:EnableCollision(false)
-    Tween.Position(self, Easing.OutExpo, self.hiddenPos, dur, function()
+
+    self.moveTween = Tween.Position(self, Easing.OutExpo, self.hiddenPos, duration, function()
+        self.moveTween = nil
         self:SetActive(false)
         self:SetVisible(false)
     end)
@@ -345,10 +349,13 @@ end
 
 function NoteRockToDestroy:Show()
     self.revealed = false
-    self:EnableCollision(true)
+    self:CancelMoveTween()
+    SetCollisionRecursive(self, true)
     self:SetActive(true)
     self:SetVisible(true)
-    Tween.Position(self, Easing.OutExpo, self.showPos, 1.0)
+    self.moveTween = Tween.Position(self, Easing.OutExpo, self.showPos, 1.0, function()
+        self.moveTween = nil
+    end)
 end
 
 function NoteRockToDestroy:SetPhaseVisible(show, instant)
@@ -363,7 +370,8 @@ function NoteRockToDestroy:SetPhaseVisible(show, instant)
     self.phaseVisible = show
     if show then
         if instant then
-            self:EnableCollision(true)
+            self:CancelMoveTween()
+            SetCollisionRecursive(self, true)
             self:SetPosition(self.showPos)
             self:SetActive(true)
             self:SetVisible(true)
@@ -373,7 +381,8 @@ function NoteRockToDestroy:SetPhaseVisible(show, instant)
     else
         self.PlayerInProx = false
         if instant then
-            self:EnableCollision(false)
+            self:CancelMoveTween()
+            SetCollisionRecursive(self, false)
             self:SetPosition(self.hiddenPos)
             self:SetActive(false)
             self:SetVisible(false)
@@ -388,20 +397,8 @@ function NoteRockToDestroy:OnDayNightChanged(isDay)
         return
     end
 
-    local show = (self.isNightStone and not isDay) or (not self.isNightStone and isDay)
+    local show = PhaseVisibility.ShouldShow(self.isNightStone, isDay)
     self:SetPhaseVisible(show, false)
-end
-
-function NoteRockToDestroy:BeginOverlap(me, other)
-    if (other:HasTag("Controller") and self.phaseVisible) then
-        self.PlayerInProx = true
-    end
-end
-
-function NoteRockToDestroy:EndOverlap(me, other)
-    if (other:HasTag("Controller")) then
-        self.PlayerInProx = false
-    end
 end
 
 function NoteRockToDestroy:Stop()
@@ -409,9 +406,10 @@ function NoteRockToDestroy:Stop()
         Tween.Cancel(self.punchTween)
         self.punchTween = nil
     end
+    self:CancelMoveTween()
 
     if self.subscribedDayNight then
-        SignalBus.Unsubscribe("DayNightChanged", self)
+        SignalBus.Unsubscribe(Events.DAY_NIGHT_CHANGED, self)
         self.subscribedDayNight = false
     end
 

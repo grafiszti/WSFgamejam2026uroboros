@@ -1,28 +1,10 @@
+Script.Load("Core/Events")
+Script.Load("Core/RuneCatalog")
+Script.Load("Core/GameSession")
+Script.Load("Core/PhaseVisibility")
+Script.Load("Core/SurfaceMath")
+
 NoteObject = {}
-
-local function DeriveRuneArt(nodeName)
-    if nodeName == nil then
-        return ""
-    end
-
-    local suffix = nil
-    if nodeName:sub(1, 4) == "Rock" then
-        suffix = nodeName:sub(5)
-    elseif nodeName:sub(1, 3) == "SM_" then
-        local candidate = nodeName:sub(4)
-        if candidate:sub(1, 7) == "Tile - " then
-            suffix = candidate:sub(8)
-        end
-    end
-
-    if suffix then
-        local base = suffix:match("^(Dur[1-6])") or suffix:match("^(Mol[1-4])")
-        if base then
-            return "Tile - " .. base
-        end
-    end
-    return ""
-end
 
 function NoteObject:Create()
     if self.NodeType == nil then self.NodeType = 0 end
@@ -52,11 +34,10 @@ end
 
 function NoteObject:UpdateNightRune()
     local art = self.RuneArt or ""
-    if art ~= "" then
-        self.isNightRune = art:find("Mol", 1, true) ~= nil
-    else
-        self.isNightRune = self:GetName():find("Mol", 1, true) ~= nil
+    if art == "" then
+        art = RuneCatalog.ArtForNode(self:GetName())
     end
+    self.isNightRune = RuneCatalog.IsNight(art)
 end
 
 function NoteObject:Start()
@@ -79,35 +60,41 @@ function NoteObject:Start()
     disableOverlaps(self)
 
     if self.RuneArt == nil or self.RuneArt == "" then
-        self.RuneArt = DeriveRuneArt(self:GetName())
+        self.RuneArt = RuneCatalog.ArtForNode(self:GetName())
     end
 
     self:UpdateNightRune()
+    self.isDay = GameSession.IsDay()
     if DayNightCycle and DayNightCycle.isDay ~= nil then
         self.isDay = DayNightCycle.isDay
+        GameSession.SetDay(self.isDay)
     end
 
     if self.subscribed then
-        SignalBus.Unsubscribe("ShakeDetected", self)
+        SignalBus.Unsubscribe(Events.SHAKE_DETECTED, self)
     end
-    SignalBus.Subscribe("ShakeDetected", self, NoteObject.OnShakeDetected)
+    SignalBus.Subscribe(Events.SHAKE_DETECTED, self, NoteObject.OnShakeDetected)
     self.subscribed = true
 
     if self.subscribedReveal then
-        SignalBus.Unsubscribe("RuneRevealed", self)
+        SignalBus.Unsubscribe(Events.RUNE_REVEALED, self)
     end
-    SignalBus.Subscribe("RuneRevealed", self, NoteObject.OnRuneRevealed)
+    SignalBus.Subscribe(Events.RUNE_REVEALED, self, NoteObject.OnRuneRevealed)
     self.subscribedReveal = true
 
     if self.subscribedDayNight then
-        SignalBus.Unsubscribe("DayNightChanged", self)
+        SignalBus.Unsubscribe(Events.DAY_NIGHT_CHANGED, self)
     end
-    SignalBus.Subscribe("DayNightChanged", self, NoteObject.OnDayNightChanged)
+    SignalBus.Subscribe(Events.DAY_NIGHT_CHANGED, self, NoteObject.OnDayNightChanged)
     self.subscribedDayNight = true
 end
 
-function NoteObject:OnRuneRevealed(noteName, runeArt)
-    if noteName ~= self:GetName() or not self:HasTag("RevealedRune") then
+function NoteObject:OnRuneRevealed(noteName, runeArt, revealTag)
+    if revealTag ~= nil and revealTag ~= "" then
+        if not self:HasTag(revealTag) then
+            return
+        end
+    elseif noteName ~= self:GetName() or not self:HasTag("RevealedRune") then
         return
     end
 
@@ -117,8 +104,10 @@ function NoteObject:OnRuneRevealed(noteName, runeArt)
 
     self.revealed = true
     self:UpdateNightRune()
+    self.isDay = GameSession.IsDay()
     if DayNightCycle and DayNightCycle.isDay ~= nil then
         self.isDay = DayNightCycle.isDay
+        GameSession.SetDay(self.isDay)
     end
     self:ApplyPhaseVisibility(self.isDay)
 end
@@ -128,13 +117,14 @@ function NoteObject:ApplyPhaseVisibility(isDay)
         return
     end
 
-    local show = (self.isNightRune and not isDay) or (not self.isNightRune and isDay)
+    local show = PhaseVisibility.ShouldShow(self.isNightRune, isDay)
     self.phaseVisible = show
     self:SetVisible(show)
 end
 
 function NoteObject:OnDayNightChanged(isDay)
     self.isDay = isDay
+    GameSession.SetDay(isDay)
     self:ApplyPhaseVisibility(isDay)
 end
 
@@ -145,19 +135,24 @@ function NoteObject:Tick(deltaTime)
     end
 
     if not self.player then
+        local world = self:GetWorld()
+        self.player = world and world:FindNode("ThirdPersonPlayer") or nil
+    end
+
+    if not self.player then
         self.PlayerInProx = false
         return
     end
 
-    local notePos = self:GetWorldPosition()
-    local playerPos = self.player:GetWorldPosition()
-    local dx = notePos.x - playerPos.x
-    local dy = notePos.y - playerPos.y
-    local dz = notePos.z - playerPos.z
-    self.PlayerInProx = (dx * dx + dy * dy + dz * dz) <= self.proximityRadiusSq
+    self.PlayerInProx = SurfaceMath.SquaredDistance(self:GetWorldPosition(),
+        self.player:GetWorldPosition()) <= self.proximityRadiusSq
 end
 
 function NoteObject:OnShakeDetected(intensity)
+    if not GameSession.IsPlaying() then
+        return
+    end
+
     if not self:IsActive(true) or not self:IsVisible(true) then
         return
     end
@@ -184,24 +179,12 @@ function NoteObject:OnShakeDetected(intensity)
     self.tweenID = Tween.Value(Easing.OutExpo, 0.0, 1.0, 0.36, function(value, pct, finished)
         local lerped = Vector.Lerp(startPos, cam:GetWorldPosition(), value)
         self:SetWorldPosition(lerped)
-        if (finished) then
+        if finished then
             self.tweenID = nil
-            SignalBus.Emit("NoteCollected", self.NodeType, self.RuneArt)
+            SignalBus.Emit(Events.NOTE_COLLECTED, self.NodeType, self.RuneArt)
             self:DestroyDeferred()
         end
     end)
-end
-
-function NoteObject:BeginOverlap(me, other)
-    if (other:HasTag("Controller")) then
-        self.PlayerInProx = true
-    end
-end
-
-function NoteObject:EndOverlap(me, other)
-    if (other:HasTag("Controller")) then
-        self.PlayerInProx = false
-    end
 end
 
 function NoteObject:Stop()
@@ -211,17 +194,17 @@ function NoteObject:Stop()
     end
 
     if self.subscribed then
-        SignalBus.Unsubscribe("ShakeDetected", self)
+        SignalBus.Unsubscribe(Events.SHAKE_DETECTED, self)
         self.subscribed = false
     end
 
     if self.subscribedReveal then
-        SignalBus.Unsubscribe("RuneRevealed", self)
+        SignalBus.Unsubscribe(Events.RUNE_REVEALED, self)
         self.subscribedReveal = false
     end
 
     if self.subscribedDayNight then
-        SignalBus.Unsubscribe("DayNightChanged", self)
+        SignalBus.Unsubscribe(Events.DAY_NIGHT_CHANGED, self)
         self.subscribedDayNight = false
     end
 

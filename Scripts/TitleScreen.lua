@@ -1,3 +1,5 @@
+Script.Load("Core/GameSession")
+
 TitleScreen = {}
 
 local IMAGE_NODE = "TitleImage"
@@ -29,6 +31,7 @@ function TitleScreen:Start()
     self.timer = 0.0
     self.loaded = false
     self.world = self:GetWorld()
+    GameSession.SetPhase(GameSession.PHASE_INTRO)
 
     Renderer.EnableConsole(false)
 
@@ -80,4 +83,10 @@ function TitleScreen:Tick(deltaTime)
             end
         end
     end
+end
+
+function TitleScreen:Stop()
+    self.image = nil
+    self.world = nil
+    self.loaded = true
 end

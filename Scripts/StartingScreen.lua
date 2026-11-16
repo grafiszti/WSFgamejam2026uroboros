@@ -1,3 +1,5 @@
+Script.Load("Core/GameSession")
+
 StartingScreen = {}
 
 local IMAGE_NODE = "StartImage"
@@ -34,6 +36,7 @@ function StartingScreen:Start()
     self.loaded = false
     self.touchWasDown = false
     self.world = self:GetWorld()
+    GameSession.SetPhase(GameSession.PHASE_INTRO)
 
     Renderer.EnableConsole(false)
 
@@ -86,10 +89,23 @@ function StartingScreen:Tick(deltaTime)
 
     if tapped then
         self.loaded = true
+        if self.StartSound then
+            Audio.StopSounds(self.StartSound)
+        end
         if self.world then
             self.world:LoadScene(NEXT_SCENE, false)
         else
             Log.Warning("StartingScreen: no world, cannot load " .. NEXT_SCENE)
         end
     end
+end
+
+function StartingScreen:Stop()
+    if self.StartSound then
+        Audio.StopSounds(self.StartSound)
+    end
+
+    self.image = nil
+    self.world = nil
+    self.loaded = true
 end
