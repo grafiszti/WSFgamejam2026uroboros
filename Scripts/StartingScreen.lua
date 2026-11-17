@@ -1,7 +1,7 @@
 StartingScreen = {}
 
 local IMAGE_NODE = "StartImage"
-local NEXT_SCENE = "SC_Default"
+local NEXT_SCENE = "StartMenu"
 local INTRO_SOUND = "Nintrendo-Roibos-SFX"
 
 function StartingScreen:Create()

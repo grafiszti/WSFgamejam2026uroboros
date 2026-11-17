@@ -16,7 +16,7 @@
                 "n3ds.author": "CIA Entertainment",
                 "cia.bannerScene": "Baner",
                 "cia.bannerAudioLoop": "false",
-                "cia.bannerAudio": ""
+                "cia.bannerAudio": "Magic-spell-SFF"
             },
             "embedded": true,
             "staticContent": false,

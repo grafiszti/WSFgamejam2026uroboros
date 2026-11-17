@@ -78,6 +78,8 @@ function NoteRockToDestroy:Create()
     self.isNightStone = false
     self.phaseVisible = true
     self.subscribedDayNight = false
+    self.player = nil
+    self.spellSFX = nil
 end
 
 function NoteRockToDestroy:GatherProperties()
@@ -96,6 +98,9 @@ function NoteRockToDestroy:GatherProperties()
 end
 
 function NoteRockToDestroy:Start()
+    if self.player == nil then
+        self.player = self:GetWorld():FindNode("ThirdPersonPlayer")
+    end
     ApplyStoneCollisionGroup(self)
 
     self.hitsRemaining = math.max(1, math.floor(self.HitsRequired or 1))
@@ -114,6 +119,8 @@ function NoteRockToDestroy:Start()
     self.RevealVolume = math.max(0.0, self.RevealVolume or 0.5)
     if self.RevealSound == nil then
         self.RevealSound = LoadAsset(REVEAL_SOUND)
+    else
+        self.spellSFX = LoadAsset(REVEAL_SOUND)
     end
     if self.RevealSound == nil and not sRevealSoundWarned then
         sRevealSoundWarned = true
@@ -316,15 +323,19 @@ function NoteRockToDestroy:Tick(deltaTime)
             self:SnapNoteAboveSurface()
             self.NoteNode:SetActive(true)
             self.NoteNode:SetVisible(true)
+            self.NoteNode:SetWorldRotation(Vec(0,0,0))
+            local playerUp = self.player:GetUpVector()
+            self.NoteNode:SetWorldPosition(self:GetWorldPosition()+playerUp*2)
             self.NoteNode:Start()
             self.NoteNode:AddTag("RevealedRune")
             self:SpawnParticleBurst(self.hitParticle, self:GetWorldPosition())
             self:SpawnParticleBurst(self.revealParticle, self.NoteNode:GetWorldPosition())
             SignalBus.Emit("RuneMined", 0)
             SignalBus.Emit("RuneRevealed", self.NoteNode:GetName(), self.RuneArt)
-            if self.RevealSound then
-                Audio.StopSounds(self.RevealSound)
-                Audio.PlaySound2D(self.RevealSound, self.RevealVolume, 1.0)
+            Audio.StopSounds(self.RevealSound)
+            Audio.PlaySound2D(self.RevealSound, self.RevealVolume, 1.0)
+            if self.spellSFX then
+                Audio.PlaySound2D(self.spellSFX, self.RevealVolume, 1.0)
             end
             self:Hide(true)
         end

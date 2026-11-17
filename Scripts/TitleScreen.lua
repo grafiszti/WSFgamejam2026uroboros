@@ -1,7 +1,7 @@
 TitleScreen = {}
 
 local IMAGE_NODE = "TitleImage"
-local NEXT_SCENE = "SC_Starting"
+local NEXT_SCENE = "Tap_ToStartWhole"
 
 function TitleScreen:Create()
     self.FadeInDuration = 2.0
