@@ -4,7 +4,7 @@ function toTutorialScene:Create()
 end
 
 function toTutorialScene:OnActivated()
-    local world = Engine.GetWorld(2)
-    world:LoadScene("tutorialScene")
+    local world = Engine.GetWorld(1)
+    world:LoadScene("Tutorial")
 end
 

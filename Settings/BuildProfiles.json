@@ -6,17 +6,18 @@
     "profiles": [
         {
             "id": 1,
-            "name": "Roibos",
+            "name": "Roibos Song",
             "platform": 5,
             "targetId": "polyphase.n3ds.cia",
             "targetOptions": {
                 "n3ds.iconPath": "C:\\msys64\\opt\\wonderful\\thirdparty\\blocksds\\core\\examples\\WSFgamejam2026uroboros\\Assets\\Art\\Ikonka2.oct",
-                "cia.bannerMode": "scene",
+                "cia.bannerMode": "image",
                 "n3ds.title": "Roibos Song",
                 "n3ds.author": "CIA Entertainment",
                 "cia.bannerScene": "Baner",
                 "cia.bannerAudioLoop": "false",
-                "cia.bannerAudio": "Magic-spell-SFF"
+                "cia.bannerAudio": "Magic-spell-SFF",
+                "cia.bannerImage": "BannerImg"
             },
             "embedded": true,
             "staticContent": false,
